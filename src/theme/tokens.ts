@@ -79,7 +79,9 @@ export const fonts = {
   sansMedium: "InstrumentSans_500Medium",
   sansSemiBold: "InstrumentSans_600SemiBold",
   sansBold: "InstrumentSans_700Bold",
-  mono: "JetBrainsMono_500Medium",
+  // Cifras/horas van en la misma familia que el resto del texto — antes usaban
+  // JetBrains Mono, pero se leía "de código" en vez de un dato de la app.
+  mono: "InstrumentSans_600SemiBold",
 } as const;
 
 export const shadows = {

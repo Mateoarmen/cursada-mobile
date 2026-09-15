@@ -50,7 +50,7 @@ function SettingsRow({
           <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: colors.white, marginLeft: "auto" }} />
         </View>
       ) : (
-        <AppText style={{ fontSize: 14, color: colors.textTertiary, fontFamily: value ? "JetBrainsMono_500Medium" : undefined }}>
+        <AppText mono={!!value} style={{ fontSize: 14, color: colors.textTertiary }}>
           {value ?? "›"}
         </AppText>
       )}
@@ -99,7 +99,7 @@ export default function PerfilScreen() {
         </View>
 
         <PrimaryButton label="Cerrar sesión" variant="danger" onPress={handleLogout} />
-        <AppText style={{ fontSize: 12, color: colors.textGhost, textAlign: "center", fontFamily: "JetBrainsMono_500Medium" }}>
+        <AppText mono style={{ fontSize: 12, color: colors.textGhost, textAlign: "center" }}>
           cursada 0.1.0
         </AppText>
       </View>
