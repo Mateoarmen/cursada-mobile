@@ -1,11 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { router } from "expo-router";
 import { Alert, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { supabase } from "@/lib/supabase";
+import type { Materia } from "@/types/database";
 import { colors, materiaColors, radii, spacing, tone, type Tone } from "@/theme/tokens";
 import { AppText, BottomSheet, Fab, Pill, PressableScale, PrimaryButton } from "@/components/ui";
 import { demoAgenda, demoMaterias, type DemoAgendaItem } from "@/data/demoContent";
+import { toRow } from "@/lib/materias";
+import { useAgenda } from "@/hooks/useAgenda";
 import {
   agendaBadgeInfo,
   diffDias,
@@ -209,7 +213,31 @@ function AgendaGroup({
 }
 
 export default function AgendaScreen() {
-  const [items, setItems] = useState<DemoAgendaItem[]>(demoAgenda);
+  const agenda = useAgenda();
+  // Fallback a materias de muestra SOLO si el usuario todavía no tiene
+  // ninguna en Supabase (mismo criterio que Materias) — hace falta acá para
+  // que el picker de "+ Nueva evaluación/tarea" mande un materia_id real que
+  // exista de verdad (si no, el insert rompe por la FK a materias).
+  const [supaMaterias, setSupaMaterias] = useState<Materia[] | null>(null);
+  useEffect(() => {
+    supabase
+      .from("materias")
+      .select("*")
+      .then(({ data }) => setSupaMaterias(data ?? []));
+  }, []);
+  const materiasRows = useMemo(() => (supaMaterias && supaMaterias.length > 0 ? supaMaterias.map(toRow) : demoMaterias), [supaMaterias]);
+
+  // Ítems "materia" (evaluación/tarea) salen de la tabla real `agenda`; si
+  // el usuario todavía no tiene ninguna fila, se muestra la agenda de
+  // muestra en su lugar (mismo criterio que Materias). Los eventos
+  // "personales" no viven en `agenda` (van a una tabla aparte, `personal`,
+  // fuera de alcance de esta pasada) — siguen siendo sólo locales.
+  const usandoDemo = !agenda.hasRows;
+  const [demoMateriaItems, setDemoMateriaItems] = useState<DemoAgendaItem[]>(() => demoAgenda.filter((i) => i.kind === "materia"));
+  const [personalItems, setPersonalItems] = useState<DemoAgendaItem[]>(() => demoAgenda.filter((i) => i.kind === "personal"));
+  const materiaItems = usandoDemo ? demoMateriaItems : agenda.items;
+  const items = useMemo(() => [...materiaItems, ...personalItems], [materiaItems, personalItems]);
+
   const [filtroKind, setFiltroKind] = useState<"" | "evaluacion" | "tarea">("");
   const [filtroMateriaId, setFiltroMateriaId] = useState("");
   const [filtroEstado, setFiltroEstado] = useState<"" | "pendiente" | "hecho">("");
@@ -225,11 +253,11 @@ export default function AgendaScreen() {
 
   const [crearModo, setCrearModo] = useState<{ kind: "materia"; itemKind: "evaluacion" | "tarea" } | { kind: "personal" } | null>(null);
   const [creTitulo, setCreTitulo] = useState("");
-  const [creMateriaId, setCreMateriaId] = useState(demoMaterias[0]?.id ?? "");
+  const [creMateriaId, setCreMateriaId] = useState(materiasRows[0]?.id ?? "");
   const [creTodoElDia, setCreTodoElDia] = useState(true);
 
   const t = useMemo(() => today(), []);
-  const materiaLookup = useMemo(() => new Map(demoMaterias.map((m) => [m.id, m])), []);
+  const materiaLookup = useMemo(() => new Map(materiasRows.map((m) => [m.id, m])), [materiasRows]);
 
   const enriched = useMemo<EnrichedItem[]>(
     () =>
@@ -269,12 +297,30 @@ export default function AgendaScreen() {
 
   const ocultarMateriaChip = !!filtroMateriaId;
 
-  const toggleHecho = (id: string) => {
-    setItems((prev) => prev.map((it) => (it.id === id && it.kind === "materia" ? { ...it, hecho: !it.hecho } : it)));
+  const avisarError = (titulo: string) => Alert.alert(titulo, "Revisá tu conexión e intentá de nuevo.");
+
+  const toggleHecho = async (id: string) => {
+    if (usandoDemo) {
+      setDemoMateriaItems((prev) => prev.map((it) => (it.id === id ? { ...it, hecho: !it.hecho } : it)));
+      return;
+    }
+    const actual = materiaItems.find((it) => it.id === id);
+    if (!actual) return;
+    const ok = await agenda.marcarHecho(id, !actual.hecho);
+    if (!ok) avisarError("No se pudo actualizar");
   };
 
-  const eliminarItem = (id: string) => {
-    setItems((prev) => prev.filter((it) => it.id !== id));
+  const eliminarItem = async (id: string) => {
+    if (personalItems.some((p) => p.id === id)) {
+      setPersonalItems((prev) => prev.filter((p) => p.id !== id));
+      return;
+    }
+    if (usandoDemo) {
+      setDemoMateriaItems((prev) => prev.filter((it) => it.id !== id));
+      return;
+    }
+    const ok = await agenda.eliminar(id);
+    if (!ok) avisarError("No se pudo eliminar");
   };
 
   const materiaSeleccionLabel = filtroMateriaId ? materiaLookup.get(filtroMateriaId)?.nombre ?? "Materia" : "Todas las materias";
@@ -283,27 +329,66 @@ export default function AgendaScreen() {
   const abrirCrear = (modo: typeof crearModo) => {
     setNuevoSheetOpen(false);
     setCreTitulo("");
-    setCreMateriaId(demoMaterias[0]?.id ?? "");
+    setCreMateriaId(materiasRows[0]?.id ?? "");
     setCreTodoElDia(true);
     setCrearModo(modo);
   };
 
-  const confirmarCrear = () => {
+  const confirmarCrear = async () => {
     if (!crearModo || !creTitulo.trim()) return;
-    const base = { id: `local-${Date.now()}`, titulo: creTitulo.trim(), fecha: isoToday(), hecho: false };
-    const nuevo: DemoAgendaItem =
-      crearModo.kind === "materia"
-        ? { ...base, kind: "materia", itemKind: crearModo.itemKind, materiaId: creMateriaId, tipo: crearModo.itemKind === "evaluacion" ? "Parcial" : "Entrega" }
-        : { ...base, kind: "personal", tipo: "Personal", todoElDia: creTodoElDia };
-    setItems((prev) => [...prev, nuevo]);
+    if (crearModo.kind === "personal") {
+      const nuevo: DemoAgendaItem = {
+        id: `local-${Date.now()}`,
+        kind: "personal",
+        tipo: "Personal",
+        titulo: creTitulo.trim(),
+        fecha: isoToday(),
+        hecho: false,
+        todoElDia: creTodoElDia,
+      };
+      setPersonalItems((prev) => [...prev, nuevo]);
+      setCrearModo(null);
+      return;
+    }
+    const tipo = crearModo.itemKind === "evaluacion" ? "Parcial" : "Entrega";
+    if (usandoDemo) {
+      const nuevo: DemoAgendaItem = {
+        id: `local-${Date.now()}`,
+        kind: "materia",
+        itemKind: crearModo.itemKind,
+        materiaId: creMateriaId,
+        tipo,
+        titulo: creTitulo.trim(),
+        fecha: isoToday(),
+        hecho: false,
+      };
+      setDemoMateriaItems((prev) => [...prev, nuevo]);
+      setCrearModo(null);
+      return;
+    }
+    const ok = await agenda.crear({ materiaId: creMateriaId, kind: crearModo.itemKind, tipo, titulo: creTitulo.trim(), fecha: isoToday() });
+    if (!ok) {
+      avisarError("No se pudo crear");
+      return;
+    }
     setCrearModo(null);
   };
 
-  const confirmarNota = () => {
+  const confirmarNota = async () => {
     if (!notaSheetItem) return;
     const n = Number(notaInput.replace(",", "."));
     if (!Number.isFinite(n)) return;
-    setItems((prev) => prev.map((it) => (it.id === notaSheetItem.id ? { ...it, nota: n } : it)));
+    if (usandoDemo) {
+      setDemoMateriaItems((prev) => prev.map((it) => (it.id === notaSheetItem.id ? { ...it, nota: n } : it)));
+      setNotaSheetItem(null);
+      setNotaInput("");
+      return;
+    }
+    const ok = await agenda.asignarNota(notaSheetItem.id, n);
+    if (!ok) {
+      avisarError("No se pudo guardar la nota");
+      return;
+    }
     setNotaSheetItem(null);
     setNotaInput("");
   };
@@ -470,7 +555,7 @@ export default function AgendaScreen() {
           </AppText>
           {filtroMateriaId === "" ? <Ionicons name="checkmark" size={18} color={colors.accent} /> : null}
         </PressableScale>
-        {demoMaterias.map((m) => (
+        {materiasRows.map((m) => (
           <PressableScale
             key={m.id}
             scaleTo={0.99}
@@ -590,7 +675,7 @@ export default function AgendaScreen() {
         />
         {crearModo?.kind === "materia" ? (
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
-            {demoMaterias.map((m) => (
+            {materiasRows.map((m) => (
               <PressableScale key={m.id} scaleTo={0.96} onPress={() => setCreMateriaId(m.id)}>
                 <Pill
                   label={m.nombre}

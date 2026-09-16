@@ -9,7 +9,13 @@ import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, t
 import { AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, RangeSlider } from "@/components/ui";
 import { demoMaterias, type DemoAsistenciaRango, type DemoEvaluacion, type DemoMateria } from "@/data/demoContent";
 import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
+import { today } from "@/lib/agenda";
 import { calcularSimulacion, escalaLabel, formatValor, toRow, unidad, type ComponenteFijoSim, type EvaluacionSim } from "@/lib/materias";
+import { rowToDemoEvaluacion, useAgenda } from "@/hooks/useAgenda";
+
+function isoToday() {
+  return today().toISOString().slice(0, 10);
+}
 
 type RangoAsistencia = "semana" | "mes" | "semestre";
 
@@ -80,13 +86,14 @@ function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: st
 export default function MateriaDetalleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [supaMateria, setSupaMateria] = useState<Materia | null>(null);
-  const [evaluaciones, setEvaluaciones] = useState<DemoEvaluacion[]>([]);
   const [simuladorAbierto, setSimuladorAbierto] = useState(false);
   const [valoresSimulados, setValoresSimulados] = useState<Record<string, number>>({});
   const [rangoAsistencia, setRangoAsistencia] = useState<RangoAsistencia>("semana");
   const [cargarNotaAbierto, setCargarNotaAbierto] = useState(false);
   const [notaInputs, setNotaInputs] = useState<Record<string, string>>({});
   const [accionItem, setAccionItem] = useState<DemoEvaluacion | null>(null);
+  const [crearItemTipo, setCrearItemTipo] = useState<"evaluacion" | "tarea" | null>(null);
+  const [crearItemTitulo, setCrearItemTitulo] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -103,13 +110,26 @@ export default function MateriaDetalleScreen() {
     return demoMaterias.find((m) => m.id === id) ?? demoMaterias[0];
   }, [supaMateria, id]);
 
-  // Estado local editable (marcar rendido/entregado, cargar nota) —
-  // arranca desde la materia resuelta y se resetea si cambia de materia.
+  // "Evaluaciones y tareas" lee/escribe la misma tabla real `agenda` que
+  // Agenda (ver src/hooks/useAgenda.ts), acotada a esta materia. Si el
+  // usuario todavía no tiene ninguna fila para esta materia, se muestra la
+  // de muestra en su lugar (mismo criterio que Materias) — estado local
+  // editable sólo para ese caso demo.
+  const agenda = useAgenda(materia.id);
+  const usandoDemoEvals = !agenda.hasRows;
+  const [demoEvaluaciones, setDemoEvaluaciones] = useState<DemoEvaluacion[]>(materia.evaluaciones);
+
+  // Se resetea si cambia de materia.
   useEffect(() => {
-    setEvaluaciones(materia.evaluaciones);
+    setDemoEvaluaciones(materia.evaluaciones);
     setValoresSimulados({});
     setSimuladorAbierto(false);
   }, [materia]);
+
+  const evaluaciones = useMemo<DemoEvaluacion[]>(
+    () => (usandoDemoEvals ? demoEvaluaciones : (agenda.rows ?? []).map((r) => rowToDemoEvaluacion(r, materia.escalaTotal))),
+    [usandoDemoEvals, demoEvaluaciones, agenda.rows, materia.escalaTotal]
+  );
 
   const accent = materiaColors[materia.colorId];
   const t = tone[materia.tone];
@@ -140,6 +160,7 @@ export default function MateriaDetalleScreen() {
   const asistenciaActual: DemoAsistenciaRango | null = materia.asistencia ? materia.asistencia[rangoAsistencia] : null;
 
   const stub = (titulo: string) => Alert.alert(titulo, "Esta acción llega en una próxima iteración.");
+  const avisarError = (titulo: string) => Alert.alert(titulo, "Revisá tu conexión e intentá de nuevo.");
 
   const abrirCargarNota = () => {
     if (!pendientesEvals.length) {
@@ -150,21 +171,66 @@ export default function MateriaDetalleScreen() {
     setCargarNotaAbierto(true);
   };
 
-  const guardarNotas = () => {
-    setEvaluaciones((prev) =>
-      prev.map((e) => {
+  const guardarNotas = async () => {
+    const cambios = pendientesEvals
+      .map((e) => {
         const raw = notaInputs[e.id];
-        if (!raw || !raw.trim()) return e;
+        if (!raw || !raw.trim()) return null;
         const n = Math.max(0, Math.min(e.notaMax, Number(raw.replace(",", "."))));
-        if (Number.isNaN(n)) return e;
-        return { ...e, estado: "aprobada", nota: n };
+        return Number.isNaN(n) ? null : { id: e.id, n };
       })
-    );
+      .filter((x): x is { id: string; n: number } => x !== null);
+
+    if (!cambios.length) {
+      setCargarNotaAbierto(false);
+      return;
+    }
+
+    if (usandoDemoEvals) {
+      setDemoEvaluaciones((prev) =>
+        prev.map((e) => {
+          const cambio = cambios.find((c) => c.id === e.id);
+          return cambio ? { ...e, estado: "aprobada", nota: cambio.n } : e;
+        })
+      );
+      setCargarNotaAbierto(false);
+      return;
+    }
+
+    const resultados = await Promise.all(cambios.map((c) => agenda.asignarNota(c.id, c.n)));
     setCargarNotaAbierto(false);
+    if (resultados.some((ok) => !ok)) avisarError("No se pudieron guardar algunas notas");
   };
 
-  const marcarHecho = (item: DemoEvaluacion, nota: number) => {
-    setEvaluaciones((prev) => prev.map((e) => (e.id === item.id ? { ...e, estado: "aprobada", nota } : e)));
+  const abrirCrearItem = (tipo: "evaluacion" | "tarea") => {
+    setCrearItemTitulo("");
+    setCrearItemTipo(tipo);
+  };
+
+  const confirmarCrearItem = async () => {
+    if (!crearItemTipo || !crearItemTitulo.trim()) return;
+    const tipo = crearItemTipo === "evaluacion" ? "Parcial" : "Entrega";
+
+    if (usandoDemoEvals) {
+      const nuevo: DemoEvaluacion = { id: `local-${Date.now()}`, nombre: crearItemTitulo.trim(), estado: "pendiente", notaMax: materia.escalaTotal };
+      setDemoEvaluaciones((prev) => [...prev, nuevo]);
+      setCrearItemTipo(null);
+      return;
+    }
+
+    const ok = await agenda.crear({
+      materiaId: materia.id,
+      kind: crearItemTipo,
+      tipo,
+      titulo: crearItemTitulo.trim(),
+      fecha: isoToday(),
+      notaMaxima: crearItemTipo === "evaluacion" ? materia.escalaTotal : null,
+    });
+    if (!ok) {
+      avisarError("No se pudo crear");
+      return;
+    }
+    setCrearItemTipo(null);
   };
 
   return (
@@ -211,10 +277,10 @@ export default function MateriaDetalleScreen() {
           <PressableScale scaleTo={0.97} onPress={() => stub("Editar materia")}>
             <Pill label="Editar materia" background={colors.surfaceSoft} style={{ height: 34, paddingHorizontal: 14 }} />
           </PressableScale>
-          <PressableScale scaleTo={0.97} onPress={() => stub("Nueva tarea")}>
+          <PressableScale scaleTo={0.97} onPress={() => abrirCrearItem("tarea")}>
             <Pill label="+ Nueva tarea" background={colors.surfaceSoft} style={{ height: 34, paddingHorizontal: 14 }} />
           </PressableScale>
-          <PressableScale scaleTo={0.97} onPress={() => stub("Nueva evaluación")}>
+          <PressableScale scaleTo={0.97} onPress={() => abrirCrearItem("evaluacion")}>
             <Pill label="+ Nueva evaluación" background={colors.accent} color={colors.white} style={{ height: 34, paddingHorizontal: 14 }} />
           </PressableScale>
         </ScrollView>
@@ -550,6 +616,33 @@ export default function MateriaDetalleScreen() {
         </View>
       </BottomSheet>
 
+      {/* Nueva evaluación / tarea */}
+      <BottomSheet visible={!!crearItemTipo} onClose={() => setCrearItemTipo(null)}>
+        <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
+          {crearItemTipo === "evaluacion" ? "Nueva evaluación" : "Nueva tarea"}
+        </AppText>
+        <TextInput
+          value={crearItemTitulo}
+          onChangeText={setCrearItemTitulo}
+          placeholder="Título"
+          placeholderTextColor={colors.textFaint}
+          style={{
+            height: 48,
+            borderRadius: radii.sm,
+            backgroundColor: colors.bg,
+            paddingHorizontal: spacing.lg,
+            fontSize: 15,
+            color: colors.text,
+            fontFamily: "InstrumentSans_400Regular",
+          }}
+        />
+        <AppText style={{ fontSize: 12, color: colors.textFaint }}>Se agenda para hoy — la fecha se podrá elegir en la próxima iteración.</AppText>
+        <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
+          <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setCrearItemTipo(null)} />
+          <PrimaryButton label="Crear" flex disabled={!crearItemTitulo.trim()} onPress={confirmarCrearItem} />
+        </View>
+      </BottomSheet>
+
       {/* Acciones de fila */}
       <BottomSheet visible={!!accionItem} onClose={() => setAccionItem(null)}>
         <AppText weight="600" style={{ fontSize: 17 }} numberOfLines={1}>
@@ -575,7 +668,15 @@ export default function MateriaDetalleScreen() {
           <PressableScale
             scaleTo={0.99}
             onPress={() => {
-              if (accionItem) setEvaluaciones((prev) => prev.map((e) => (e.id === accionItem.id ? { ...e, estado: "pendiente", nota: undefined } : e)));
+              if (accionItem) {
+                if (usandoDemoEvals) {
+                  setDemoEvaluaciones((prev) => prev.map((e) => (e.id === accionItem.id ? { ...e, estado: "pendiente", nota: undefined } : e)));
+                } else {
+                  agenda.marcarHecho(accionItem.id, false).then((ok) => {
+                    if (!ok) avisarError("No se pudo actualizar");
+                  });
+                }
+              }
               setAccionItem(null);
             }}
             style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md }}
