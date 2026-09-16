@@ -219,7 +219,11 @@ export default function InicioScreen() {
               {demoProgresoSemestre.deltaLabel}
             </AppText>
           </View>
-          <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.lg, flexDirection: "row", gap: spacing.xl, alignItems: "center", flexWrap: "wrap" }}>
+          <PressableScale
+            scaleTo={0.98}
+            onPress={() => router.push("/progreso")}
+            style={{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.lg, flexDirection: "row", gap: spacing.xl, alignItems: "center", flexWrap: "wrap" }}
+          >
             <ProgressRing
               progress={demoProgresoSemestre.evaluacionesCalificadas / demoProgresoSemestre.evaluacionesEsperadas}
               size={96}
@@ -243,7 +247,7 @@ export default function InicioScreen() {
                 </View>
               ))}
             </View>
-          </View>
+          </PressableScale>
         </View>
       </ScrollView>
     </SafeAreaView>

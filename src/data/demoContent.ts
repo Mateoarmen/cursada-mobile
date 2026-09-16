@@ -5,6 +5,8 @@
 // TODO(backend): reemplazar por fetch real una vez extendido el schema.
 
 import { colors, materiaColors, type EstadoMateria, type MateriaColorId, type Tone } from "@/theme/tokens";
+import { nombreDesdePeriodo, PERIODO_ACTUAL, type Bloque } from "@/lib/catalog";
+import { formatFechaAgenda } from "@/lib/agenda";
 
 export type DemoEvaluacion = {
   id: string;
@@ -14,6 +16,19 @@ export type DemoEvaluacion = {
   notaMax: number;
   fechaLabel?: string;
 };
+
+// Puntos del curso sin fecha (ej. "Participación en clase") que el
+// estudiante carga a mano — cuentan para el total/aprobación igual que una
+// evaluación, pero no tienen "próxima instancia" que rendir. Réplica de
+// `componentes_fijos` en el schema real (ver types/database.ts).
+export type DemoComponenteFijo = {
+  id: string;
+  titulo: string;
+  puntajeMax: number;
+  valor: number | null;
+};
+
+export type DemoAsistenciaRango = { pct: number; presentes: number; total: number };
 
 export type DemoMateria = {
   id: string;
@@ -30,6 +45,7 @@ export type DemoMateria = {
   // mano porque es data de muestra fija.
   tone: Tone;
   salon: string;
+  periodoLabel: string;
   escalaTotal: number; // 12 = "Nota 0–12", 100 = "Porcentaje", otro = "Puntaje N"
   escalaAprob: number;
   escalaExon?: number;
@@ -37,12 +53,17 @@ export type DemoMateria = {
   promedio: number;
   horarioResumen: string;
   ubicacionResumen: string;
+  bloques: Bloque[];
+  componentesFijos: DemoComponenteFijo[];
+  asistencia: { semana: DemoAsistenciaRango; mes: DemoAsistenciaRango; semestre: DemoAsistenciaRango } | null;
   evaluaciones: DemoEvaluacion[];
 };
 
 function accentOf(colorId: MateriaColorId) {
   return materiaColors[colorId].strong;
 }
+
+const PERIODO_LABEL = nombreDesdePeriodo(PERIODO_ACTUAL);
 
 export const demoMaterias: DemoMateria[] = [
   {
@@ -56,6 +77,7 @@ export const demoMaterias: DemoMateria[] = [
     estado: "cursando",
     tone: "success",
     salon: "Central · Aula 402",
+    periodoLabel: PERIODO_LABEL,
     escalaTotal: 12,
     escalaAprob: 6,
     escalaExon: 9,
@@ -63,6 +85,13 @@ export const demoMaterias: DemoMateria[] = [
     promedio: 8.4,
     horarioResumen: "Lun 18:00–20:00",
     ubicacionResumen: "Central · Aula 402",
+    bloques: [{ dia: 1, ini: 18, fin: 20 }],
+    componentesFijos: [{ id: "con-fijo-1", titulo: "Participación en clase", puntajeMax: 10, valor: 8 }],
+    asistencia: {
+      semana: { pct: 100, presentes: 1, total: 1 },
+      mes: { pct: 100, presentes: 4, total: 4 },
+      semestre: { pct: 93, presentes: 13, total: 14 },
+    },
     evaluaciones: [
       { id: "con-p1", nombre: "Parcial 1", estado: "aprobada", nota: 9, notaMax: 12 },
       { id: "con-p2", nombre: "Parcial 2", estado: "pendiente", notaMax: 12, fechaLabel: "mié 3 de set · 19:00" },
@@ -79,14 +108,23 @@ export const demoMaterias: DemoMateria[] = [
     estado: "cursando",
     tone: "warning",
     salon: "Cuareim · Aula 210",
+    periodoLabel: PERIODO_LABEL,
     escalaTotal: 12,
     escalaAprob: 6,
     progreso: 0.55,
     promedio: 6.1,
     horarioResumen: "Mié 19:00–21:00",
     ubicacionResumen: "Cuareim · Aula 210",
+    bloques: [{ dia: 3, ini: 19, fin: 21 }],
+    componentesFijos: [],
+    asistencia: {
+      semana: { pct: 100, presentes: 1, total: 1 },
+      mes: { pct: 75, presentes: 3, total: 4 },
+      semestre: { pct: 79, presentes: 11, total: 14 },
+    },
     evaluaciones: [
       { id: "est-p1", nombre: "Parcial 1", estado: "aprobada", nota: 6, notaMax: 12 },
+      { id: "est-final", nombre: "Final", estado: "pendiente", notaMax: 12, fechaLabel: formatFechaAgenda(isoOffset(18), "14:00") },
     ],
   },
   {
@@ -100,14 +138,23 @@ export const demoMaterias: DemoMateria[] = [
     estado: "recursando",
     tone: "danger",
     salon: "Central · Aula 118",
+    periodoLabel: PERIODO_LABEL,
     escalaTotal: 12,
     escalaAprob: 6,
     progreso: 0.4,
     promedio: 5.0,
     horarioResumen: "Jue 18:00–20:00",
     ubicacionResumen: "Central · Aula 118",
+    bloques: [{ dia: 4, ini: 18, fin: 20 }],
+    componentesFijos: [],
+    asistencia: {
+      semana: { pct: 0, presentes: 0, total: 1 },
+      mes: { pct: 50, presentes: 2, total: 4 },
+      semestre: { pct: 64, presentes: 9, total: 14 },
+    },
     evaluaciones: [
       { id: "der-p1", nombre: "Parcial 1", estado: "aprobada", nota: 5, notaMax: 12 },
+      { id: "der-p2", nombre: "Parcial 1 · recuperatorio", estado: "pendiente", notaMax: 12, fechaLabel: formatFechaAgenda(isoOffset(-2), "18:00") },
     ],
   },
   {
@@ -121,6 +168,7 @@ export const demoMaterias: DemoMateria[] = [
     estado: "cursando",
     tone: "success",
     salon: "Pocitos · Aula 305",
+    periodoLabel: PERIODO_LABEL,
     escalaTotal: 12,
     escalaAprob: 6,
     escalaExon: 9,
@@ -128,8 +176,16 @@ export const demoMaterias: DemoMateria[] = [
     promedio: 9.1,
     horarioResumen: "Mar 21:00–23:00",
     ubicacionResumen: "Pocitos · Aula 305",
+    bloques: [{ dia: 2, ini: 21, fin: 23 }],
+    componentesFijos: [],
+    asistencia: {
+      semana: { pct: 100, presentes: 1, total: 1 },
+      mes: { pct: 100, presentes: 4, total: 4 },
+      semestre: { pct: 100, presentes: 14, total: 14 },
+    },
     evaluaciones: [
       { id: "mkt-p1", nombre: "Parcial 1", estado: "aprobada", nota: 9, notaMax: 12 },
+      { id: "mkt-p2", nombre: "Parcial 2", estado: "pendiente", notaMax: 12 },
     ],
   },
   {
@@ -143,14 +199,19 @@ export const demoMaterias: DemoMateria[] = [
     estado: "aprobada",
     tone: "success",
     salon: "Central · Aula 210",
+    periodoLabel: "2026 · Primer semestre",
     escalaTotal: 12,
     escalaAprob: 6,
     progreso: 0.3,
     promedio: 7.8,
     horarioResumen: "Vie 18:00–20:00",
     ubicacionResumen: "Central · Aula 210",
+    bloques: [],
+    componentesFijos: [],
+    asistencia: null,
     evaluaciones: [
       { id: "fin-p1", nombre: "Parcial 1", estado: "aprobada", nota: 8, notaMax: 12 },
+      { id: "fin-p2", nombre: "Parcial 2", estado: "aprobada", nota: 7.6, notaMax: 12 },
     ],
   },
   {
@@ -164,12 +225,16 @@ export const demoMaterias: DemoMateria[] = [
     estado: "pendiente",
     tone: "neutral",
     salon: "Sin salón asignado",
+    periodoLabel: "2026 · Primer semestre",
     escalaTotal: 100,
     escalaAprob: 70,
     progreso: 0,
     promedio: 0,
     horarioResumen: "Sin horario aún",
     ubicacionResumen: "Sin salón asignado",
+    bloques: [],
+    componentesFijos: [],
+    asistencia: null,
     evaluaciones: [],
   },
 ];
@@ -450,6 +515,13 @@ export const demoProgresoSemestre = {
   deltaTone: "success" as DemoTone,
   evaluacionesCalificadas: 5,
   evaluacionesEsperadas: 9,
+  // "encaminada a exonerar" / "aprobando" / "en riesgo" — mismo desglose que
+  // renderProgresoEsteSemestre() en runtime.js (m.actual vs. escalaExon/
+  // escalaAprob de cada materia). Calculado a mano acá porque es data de
+  // muestra fija: mkt-212 ya está sobre su exoneración (9.1≥9), con-201 y
+  // fin-260/est-118 aprobando sin llegar a exonerar, der-330 por debajo del
+  // mínimo de aprobación.
+  buckets: { exonerando: 1, aprobando: 3, enRiesgo: 1 },
   materias: [
     { id: "der-330", nombre: "Derecho Comercial", color: colors.danger, notaTxt: "5.0", aprob: 6, tone: "danger" },
     { id: "est-118", nombre: "Estadística Aplicada", color: colors.cyan, notaTxt: "6.1", aprob: 6, tone: "warning" },
@@ -458,3 +530,161 @@ export const demoProgresoSemestre = {
     { id: "mkt-212", nombre: "Marketing Estratégico", color: colors.purple, notaTxt: "9.1", aprob: 6, tone: "success" },
   ] as DemoProgresoMateria[],
 };
+
+// ============================================================
+// Pantalla Progreso — historial completo de semestres (no se acota al
+// activo, ver cursada-conventions § Semestres), distribución de estado y
+// meta de carrera. Mismo placeholder de datos que el resto de este archivo:
+// reemplazar por fetch real una vez el schema tenga progreso/nota/créditos.
+// ============================================================
+
+export type DemoSemestreMateria = {
+  id: string;
+  nombre: string;
+  color: string;
+  notaTxt: string; // "—" si todavía no tiene nota cargada
+  aprob: number;
+  tone: DemoTone;
+};
+
+export type DemoSemestrePunto = {
+  id: string;
+  nombre: string;
+  activo: boolean;
+  promedio: number | null; // 0-100 normalizado; null = semestre sin ninguna nota cargada
+  aprobadas: number;
+  exoneradas: number;
+  total: number;
+  materias: DemoSemestreMateria[];
+};
+
+// Semestre actual: mismas 6 materias que demoMaterias arriba (total:6),
+// aprobadas: sólo fin-260; exoneradas: sólo mkt-212 (única que llegó a su
+// escalaExon). aud-140 (pendiente) entra igual con nota "—", no se excluye
+// de "materias de este semestre" — sólo se excluye del desglose de riesgo.
+const demoProgresoSemestreActualMaterias: DemoSemestreMateria[] = [
+  { id: "con-201", nombre: "Contabilidad II", color: accentOf("azul"), notaTxt: "8.4", aprob: 6, tone: "success" },
+  { id: "est-118", nombre: "Estadística Aplicada", color: accentOf("turquesa"), notaTxt: "6.1", aprob: 6, tone: "warning" },
+  { id: "der-330", nombre: "Derecho Comercial", color: accentOf("coral"), notaTxt: "5.0", aprob: 6, tone: "danger" },
+  { id: "mkt-212", nombre: "Marketing Estratégico", color: accentOf("indigo"), notaTxt: "9.1", aprob: 6, tone: "success" },
+  { id: "fin-260", nombre: "Finanzas Corporativas", color: accentOf("verde"), notaTxt: "7.8", aprob: 6, tone: "success" },
+  { id: "aud-140", nombre: "Auditoría I", color: accentOf("amarillo"), notaTxt: "—", aprob: 70, tone: "neutral" },
+];
+
+export const demoProgresoHistorial: DemoSemestrePunto[] = [
+  {
+    id: "sem-2024-2",
+    nombre: "2024 · Segundo semestre",
+    activo: false,
+    promedio: null,
+    aprobadas: 3,
+    exoneradas: 0,
+    total: 3,
+    materias: [
+      { id: "hist-1", nombre: "Introducción a la Economía", color: colors.cyan, notaTxt: "—", aprob: 6, tone: "neutral" },
+      { id: "hist-2", nombre: "Matemática I", color: colors.purple, notaTxt: "—", aprob: 6, tone: "neutral" },
+      { id: "hist-3", nombre: "Herramientas Informáticas", color: colors.success, notaTxt: "—", aprob: 6, tone: "neutral" },
+    ],
+  },
+  {
+    id: "sem-2025-1",
+    nombre: "2025 · Primer semestre",
+    activo: false,
+    promedio: 68,
+    aprobadas: 4,
+    exoneradas: 1,
+    total: 4,
+    materias: [
+      { id: "hist-4", nombre: "Matemática II", color: colors.accent, notaTxt: "7.2", aprob: 6, tone: "success" },
+      { id: "hist-5", nombre: "Macroeconomía", color: colors.danger, notaTxt: "6.4", aprob: 6, tone: "success" },
+      { id: "hist-6", nombre: "Derecho Civil", color: colors.cyan, notaTxt: "8.9", aprob: 6, tone: "success" },
+      { id: "hist-7", nombre: "Comportamiento Organizacional", color: colors.purple, notaTxt: "6.0", aprob: 6, tone: "success" },
+    ],
+  },
+  {
+    id: "sem-2025-2",
+    nombre: "2025 · Segundo semestre",
+    activo: false,
+    promedio: 75,
+    aprobadas: 5,
+    exoneradas: 2,
+    total: 5,
+    materias: [
+      { id: "hist-8", nombre: "Contabilidad I", color: colors.accent, notaTxt: "9.0", aprob: 6, tone: "success" },
+      { id: "hist-9", nombre: "Costos I", color: colors.success, notaTxt: "8.6", aprob: 6, tone: "success" },
+      { id: "hist-10", nombre: "Estadística I", color: colors.cyan, notaTxt: "7.1", aprob: 6, tone: "success" },
+      { id: "hist-11", nombre: "Derecho Comercial I", color: accentOf("coral"), notaTxt: "6.8", aprob: 6, tone: "success" },
+      { id: "hist-12", nombre: "Inglés III", color: colors.purple, notaTxt: "9.4", aprob: 6, tone: "success" },
+    ],
+  },
+  {
+    id: "sem-2026-1",
+    nombre: "2026 · Primer semestre",
+    activo: false,
+    promedio: 70,
+    aprobadas: 3,
+    exoneradas: 1,
+    total: 4,
+    materias: [
+      { id: "hist-13", nombre: "Costos II", color: colors.accent, notaTxt: "9.3", aprob: 6, tone: "success" },
+      { id: "hist-14", nombre: "Finanzas I", color: colors.success, notaTxt: "6.5", aprob: 6, tone: "success" },
+      { id: "hist-15", nombre: "Estadística II", color: colors.cyan, notaTxt: "6.9", aprob: 6, tone: "success" },
+      { id: "hist-16", nombre: "Comercio Exterior", color: accentOf("coral"), notaTxt: "—", aprob: 6, tone: "neutral" },
+    ],
+  },
+  {
+    id: "sem-2026-2",
+    nombre: PERIODO_LABEL,
+    activo: true,
+    promedio: 71,
+    aprobadas: 1,
+    exoneradas: 1,
+    total: 6,
+    materias: demoProgresoSemestreActualMaterias,
+  },
+];
+
+// "Materias pendientes" (estado 'pendiente' = debe rendir examen) de TODA
+// la cuenta, agrupadas por semestre — mismo alcance histórico completo que
+// el resto de Progreso (ver renderProgresoPendientes en runtime.js).
+export type DemoMateriaPendiente = {
+  id: string;
+  materiaId: string;
+  nombre: string;
+  color: string;
+  aprob: number;
+  semestreId: string;
+  semestreNombre: string;
+};
+
+export const demoProgresoPendientes: DemoMateriaPendiente[] = [
+  {
+    id: "pend-aud-140",
+    materiaId: "aud-140",
+    nombre: "Auditoría I",
+    color: accentOf("amarillo"),
+    aprob: 70,
+    semestreId: "sem-2026-2",
+    semestreNombre: PERIODO_LABEL,
+  },
+  {
+    id: "pend-hist-16",
+    materiaId: "hist-16",
+    nombre: "Comercio Exterior",
+    color: accentOf("coral"),
+    aprob: 6,
+    semestreId: "sem-2026-1",
+    semestreNombre: "2026 · Primer semestre",
+  },
+];
+
+// Materias aprobadas sin ninguna nota cargada todavía (típicamente las
+// tildadas en el paso "progreso" del onboarding) — mismo criterio que
+// materiasAprobadasSinNota() en runtime.js. Acá: las 3 del semestre
+// "2024 · Segundo semestre" cargado como progreso previo.
+export const demoProgresoAprobadasSinNota = demoProgresoHistorial[0]!.materias.length;
+
+// Meta de carrera para "Progreso hacia el título" — configurable en
+// Ajustes en la web (CURRENT_PROFILE.materias_carrera); acá fija porque
+// Ajustes todavía no existe como pantalla en la app (ver inventario).
+export const demoProgresoMeta = { materiasCarrera: 45 };
