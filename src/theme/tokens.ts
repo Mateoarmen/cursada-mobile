@@ -17,6 +17,9 @@ export const colors = {
   accentText: "#5C9BFF",
   accentSoft: "rgba(44,123,255,0.16)",
   accentSofter: "rgba(44,123,255,0.10)",
+  // Celeste de relleno del marco giratorio de las CTA destacadas (.cta-glow
+  // en styles.css) — mismo valor en ambos temas de la web.
+  ctaGlowHighlight: "#CFE3FF",
 
   text: "#F5F5F7",
   textBody: "rgba(245,245,247,0.8)",

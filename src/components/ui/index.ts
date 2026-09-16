@@ -3,6 +3,7 @@ export { Avatar } from "./Avatar";
 export { BackButton } from "./BackButton";
 export { BottomSheet } from "./BottomSheet";
 export { BrandMark } from "./BrandMark";
+export { CtaGlow } from "./CtaGlow";
 export { Fab } from "./Fab";
 export { PickerField } from "./PickerField";
 export { Pill } from "./Pill";

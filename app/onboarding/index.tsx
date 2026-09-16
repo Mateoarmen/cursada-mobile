@@ -5,7 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
 import { colors, radii, spacing } from "@/theme/tokens";
-import { AppText, BrandMark, PrimaryButton } from "@/components/ui";
+import { AppText, BrandMark, CtaGlow, PrimaryButton } from "@/components/ui";
 
 const PASOS = [
   { icon: "book-outline" as const, texto: "Cargá tus materias con horario, salón y nota de aprobación." },
@@ -58,7 +58,9 @@ export default function OnboardingIndex() {
         </View>
 
         <View style={{ gap: spacing.sm, alignItems: "center" }}>
-          <PrimaryButton label="Crear mi primera materia" onPress={() => router.push("/(tabs)/materias")} style={{ width: "100%" }} />
+          <CtaGlow radius={radii.sm} style={{ width: "100%" }}>
+            <PrimaryButton label="Crear mi primera materia" onPress={() => router.push("/(tabs)/materias")} />
+          </CtaGlow>
           <AppText style={{ fontSize: 12, color: colors.textFaint }}>Toma 40 segundos · sin registro</AppText>
         </View>
         <AppText style={{ fontSize: 12, color: colors.textGhost, textAlign: "center" }}>Nota 0–12, puntaje o porcentaje · pensado para facultades uruguayas</AppText>
