@@ -2,23 +2,40 @@ import { useEffect, useState } from "react";
 import { FlatList, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
+import { setSemestreActivo } from "@/lib/semestres";
 import type { Semestre } from "@/types/database";
 import { colors, radii, spacing } from "@/theme/tokens";
 import { AppText, BackButton, PressableScale } from "@/components/ui";
 
+// Los semestres históricos (creados por el paso "progreso anterior" del
+// wizard de onboarding, ver src/lib/wizardReconcile.ts) nunca aparecen acá
+// ni se pueden activar — mismo criterio que semestresPropiosOrdenados() en
+// runtime.js.
 export default function SemestreActivoScreen() {
   const [semestres, setSemestres] = useState<Semestre[]>([]);
 
-  useEffect(() => {
+  const cargar = () => {
     supabase
       .from("semestres")
       .select("*")
-      .then(({ data }) => setSemestres(data ?? []));
+      .eq("historico", false)
+      .order("orden", { ascending: true, nullsFirst: false })
+      .then(({ data }) => setSemestres((data as Semestre[]) ?? []));
+  };
+
+  useEffect(() => {
+    cargar();
   }, []);
 
   const activarSemestre = async (id: string) => {
-    // TODO: replicar la lógica de "semestre activo" que ya existe en la versión web
-    // (probablemente actualizar un flag en la tabla semestres o en el perfil del usuario)
+    const anterior = semestres;
+    setSemestres((prev) => prev.map((s) => ({ ...s, activo: s.id === id })));
+    try {
+      await setSemestreActivo(id);
+    } catch (e) {
+      setSemestres(anterior);
+      console.warn("Cursada: no se pudo activar el semestre", e);
+    }
   };
 
   return (

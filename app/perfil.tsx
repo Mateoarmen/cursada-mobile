@@ -1,10 +1,63 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import { router } from "expo-router";
-import { View } from "react-native";
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import * as ImagePicker from "expo-image-picker";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/hooks/useSession";
+import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
+import { catCarrerasDe, type CatCarrera } from "@/lib/catalog";
+import { saveProfile, uploadAvatar } from "@/lib/profile";
+import {
+  aniosNacimiento,
+  calcularTelefono,
+  fechaNacimientoISO,
+  MESES_NACIMIENTO,
+  nacimientoDesdeISO,
+  paisPorIso,
+  PAISES_TEL,
+  telefonoNacionalDesdeE164,
+} from "@/lib/authErrors";
+import type { University } from "@/types/database";
 import { colors, radii, spacing } from "@/theme/tokens";
-import { AppText, Avatar, BackButton, PressableScale, PrimaryButton } from "@/components/ui";
+import { AppText, Avatar, BackButton, PickerField, PressableScale, PrimaryButton, Switch } from "@/components/ui";
+
+const DIAS_OPTS = Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }));
+const MESES_OPTS = MESES_NACIMIENTO.map((m) => ({ value: String(m.value), label: m.label }));
+const ANIOS_OPTS = aniosNacimiento().map((y) => ({ value: String(y), label: String(y) }));
+const PAISES_OPTS = PAISES_TEL.map((p) => ({ value: p.iso, label: `${p.bandera} ${p.nombre} (${p.prefijo})` }));
+
+const inputStyle = {
+  height: 48,
+  borderRadius: radii.sm,
+  backgroundColor: colors.surface,
+  paddingHorizontal: spacing.lg,
+  fontSize: 15,
+  color: colors.text,
+  fontFamily: "InstrumentSans_400Regular",
+} as const;
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <View style={{ gap: 6 }}>
+      <AppText weight="500" style={{ fontSize: 12, color: colors.textTertiary }}>
+        {label}
+      </AppText>
+      {children}
+    </View>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <View style={{ gap: spacing.md }}>
+      <AppText weight="600" style={{ fontSize: 13, letterSpacing: 0.3, color: colors.textTertiary, textTransform: "uppercase" }}>
+        {title}
+      </AppText>
+      {children}
+    </View>
+  );
+}
 
 function SettingsRow({
   label,
@@ -19,10 +72,12 @@ function SettingsRow({
   last?: boolean;
   toggle?: boolean;
 }) {
+  const [on, setOn] = useState(true);
   return (
     <PressableScale
       scaleTo={0.98}
       onPress={onPress}
+      disabled={toggle}
       style={{
         flexDirection: "row",
         alignItems: "center",
@@ -37,18 +92,7 @@ function SettingsRow({
         {label}
       </AppText>
       {toggle ? (
-        <View
-          style={{
-            width: 44,
-            height: 26,
-            borderRadius: radii.round,
-            backgroundColor: colors.accent,
-            padding: 2,
-            justifyContent: "center",
-          }}
-        >
-          <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: colors.white, marginLeft: "auto" }} />
-        </View>
+        <Switch value={on} onValueChange={setOn} />
       ) : (
         <AppText mono={!!value} style={{ fontSize: 14, color: colors.textTertiary }}>
           {value ?? "›"}
@@ -60,11 +104,160 @@ function SettingsRow({
 
 export default function PerfilScreen() {
   const { session } = useSession();
+  // Sólo se lee `profile` de acá — el `refresh()` de este contexto también
+  // dispara el `loading` que usa _layout.tsx para decidir si desmontar todo
+  // el navegador (gate de sesión/onboarding), así que llamarlo después de
+  // guardar tira al usuario de vuelta a las tabs en vez de dejarlo en
+  // Perfil. El estado local del formulario ya refleja lo guardado, así que
+  // no hace falta releer el perfil compartido acá.
+  const { profile } = useOnboardingStatusContext();
+  const userId = session?.user?.id;
   const email = session?.user?.email ?? "";
-  const initial = email ? email[0]!.toUpperCase() : "?";
+
+  const [nombre, setNombre] = useState("");
+  const [apellido, setApellido] = useState("");
+  const [nacDia, setNacDia] = useState("");
+  const [nacMes, setNacMes] = useState("");
+  const [nacAnio, setNacAnio] = useState("");
+  const [telPais, setTelPais] = useState("UY");
+  const [telefono, setTelefono] = useState("");
+  const [universidades, setUniversidades] = useState<University[]>([]);
+  const [universidadId, setUniversidadId] = useState("");
+  const [universidadOtra, setUniversidadOtra] = useState("");
+  const [carreras, setCarreras] = useState<CatCarrera[]>([]);
+  const [carrera, setCarrera] = useState("");
+  const [carreraEsOtra, setCarreraEsOtra] = useState(true);
+
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [editando, setEditando] = useState(false);
+
+  const initialized = useRef(false);
+
+  // Precarga el formulario una única vez, cuando el perfil llega del
+  // contexto compartido — igual que openPerfilModal() en la web. Después de
+  // esa carga inicial no se vuelve a pisar el formulario (aunque el
+  // contexto se refresque) para no perder una edición en curso.
+  useEffect(() => {
+    if (initialized.current || !profile) return;
+    initialized.current = true;
+    setNombre(profile.nombre ?? "");
+    setApellido(profile.apellido ?? "");
+    const nac = nacimientoDesdeISO(profile.birth_date);
+    setNacDia(nac.dia);
+    setNacMes(nac.mes);
+    setNacAnio(nac.anio);
+    setTelPais(profile.telefono_pais ?? "UY");
+    setTelefono(telefonoNacionalDesdeE164(profile.telefono_e164, profile.telefono_pais));
+    setUniversidadId(profile.university_id ?? (profile.university_other ? "otra" : ""));
+    setUniversidadOtra(profile.university_other ?? "");
+    setCarrera(profile.carrera ?? "");
+    setAvatarUri(profile.foto_url ?? null);
+  }, [profile]);
+
+  useEffect(() => {
+    if (universidades.length) return;
+    supabase
+      .from("universities")
+      .select("*")
+      .order("nombre")
+      .then(({ data }) => setUniversidades((data as University[]) ?? []));
+  }, [universidades.length]);
+
+  useEffect(() => {
+    if (!universidadId || universidadId === "otra") {
+      setCarreras([]);
+      setCarreraEsOtra(true);
+      return;
+    }
+    catCarrerasDe(universidadId)
+      .then((c) => {
+        setCarreras(c);
+        setCarreraEsOtra(c.length > 0 ? !c.some((x) => x.nombre === carrera) : true);
+      })
+      .catch(() => {
+        setCarreras([]);
+        setCarreraEsOtra(true);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [universidadId]);
+
+  const universidadOpts = useMemo(
+    () => [...universidades.map((u) => ({ value: u.id, label: u.nombre })), { value: "otra", label: "Otra…" }],
+    [universidades]
+  );
+  const carreraOpts = useMemo(
+    () => [...carreras.map((c) => ({ value: c.id, label: c.nombre + (c.plan_version ? ` — ${c.plan_version}` : "") })), { value: "__otra__", label: "No está en la lista" }],
+    [carreras]
+  );
+  const carreraIdSeleccionado = carreras.find((c) => c.nombre === carrera)?.id ?? "";
+
+  const initial = (nombre || email || "?")[0]!.toUpperCase();
+  const nombreCompleto = [nombre, apellido].filter(Boolean).join(" ").trim();
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    Alert.alert("Cerrar sesión", "¿Seguro que querés cerrar sesión?", [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Cerrar sesión",
+        style: "destructive",
+        onPress: () => supabase.auth.signOut(),
+      },
+    ]);
+  };
+
+  const handleCambiarFoto = async () => {
+    if (!userId) return;
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permiso necesario", "Activá el acceso a tus fotos en Ajustes para cambiar tu foto de perfil.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.9,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    setAvatarBusy(true);
+    try {
+      const fotoUrl = await uploadAvatar(userId, result.assets[0].uri);
+      setAvatarUri(fotoUrl);
+    } catch (e) {
+      Alert.alert("No se pudo subir la foto", e instanceof Error ? e.message : "Revisá tu conexión e intentá de nuevo.");
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const handleGuardar = async () => {
+    if (!userId) return;
+    setSaving(true);
+    setSaved(false);
+    try {
+      const tel = calcularTelefono(telPais, telefono.trim());
+      await saveProfile(userId, {
+        nombre: nombre.trim(),
+        apellido: apellido.trim(),
+        birth_date: fechaNacimientoISO(nacDia ? Number(nacDia) : null, nacMes ? Number(nacMes) : null, nacAnio ? Number(nacAnio) : null),
+        carrera: carrera.trim(),
+        telefono_e164: tel.telefonoE164,
+        telefono_pais: tel.telefonoPais,
+        university_id: universidadId && universidadId !== "otra" ? universidadId : null,
+        university_other: universidadId === "otra" ? universidadOtra.trim() : null,
+      });
+      // Éxito silencioso — sin toast, sólo el botón confirma un instante
+      // (ver design system, sección Motion).
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
+    } catch (e) {
+      Alert.alert("No se pudieron guardar los cambios", e instanceof Error ? e.message : "Revisá tu conexión e intentá de nuevo.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -76,33 +269,137 @@ export default function PerfilScreen() {
         </AppText>
       </View>
 
-      <View style={{ paddingHorizontal: spacing.xl, gap: spacing.xxl }}>
-        <View style={{ alignItems: "center", gap: spacing.md, paddingVertical: spacing.sm }}>
-          <Avatar initial={initial} size={88} fontSize={32} />
-          <View style={{ alignItems: "center", gap: spacing.xxs }}>
-            <AppText weight="600" style={{ fontSize: 19 }}>
-              {email || "Tu cuenta"}
-            </AppText>
-            <AppText style={{ fontSize: 13, color: colors.textTertiary }}>Cursada</AppText>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxxl, gap: spacing.xxl }} keyboardShouldPersistTaps="handled">
+          <View style={{ alignItems: "center", gap: spacing.md, paddingVertical: spacing.sm }}>
+            <PressableScale scaleTo={0.95} onPress={handleCambiarFoto} disabled={avatarBusy} style={{ opacity: avatarBusy ? 0.5 : 1 }}>
+              <Avatar uri={avatarUri} initial={initial} size={88} fontSize={32} />
+            </PressableScale>
+            <View style={{ alignItems: "center", gap: spacing.xxs }}>
+              <AppText weight="600" style={{ fontSize: 19 }}>
+                {nombreCompleto || email || "Tu cuenta"}
+              </AppText>
+              <AppText style={{ fontSize: 13, color: colors.textTertiary }}>{email}</AppText>
+            </View>
+            {avatarBusy ? (
+              <AppText style={{ fontSize: 13, color: colors.textTertiary }}>Subiendo foto…</AppText>
+            ) : (
+              <PressableScale scaleTo={0.98} onPress={() => setEditando((v) => !v)}>
+                <AppText weight="500" style={{ fontSize: 13, color: colors.accentText }}>
+                  {editando ? "Ocultar" : "Editar perfil"}
+                </AppText>
+              </PressableScale>
+            )}
           </View>
-        </View>
 
-        <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, overflow: "hidden" }}>
-          <SettingsRow label="Semestre activo" onPress={() => router.push("/semestre-activo")} />
-          <SettingsRow label="Notificaciones" toggle />
-          <SettingsRow label="Apariencia" value="Oscuro" last />
-        </View>
+          {editando ? (
+            <>
+              <Section title="Datos personales">
+                <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                  <TextInput style={[inputStyle, { flex: 1 }]} placeholder="Nombre" placeholderTextColor={colors.textFaint} value={nombre} onChangeText={setNombre} />
+                  <TextInput style={[inputStyle, { flex: 1 }]} placeholder="Apellido" placeholderTextColor={colors.textFaint} value={apellido} onChangeText={setApellido} />
+                </View>
 
-        <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, overflow: "hidden" }}>
-          <SettingsRow label="Privacidad y datos" />
-          <SettingsRow label="Ayuda" last />
-        </View>
+                <Field label="Fecha de nacimiento">
+                  <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                    <PickerField compact label="Día" value={nacDia} placeholder="Día" options={DIAS_OPTS} onSelect={setNacDia} />
+                    <View style={{ flex: 1.6 }}>
+                      <PickerField label="Mes" value={nacMes} placeholder="Mes" options={MESES_OPTS} onSelect={setNacMes} />
+                    </View>
+                    <View style={{ flex: 1.2 }}>
+                      <PickerField label="Año" value={nacAnio} placeholder="Año" options={ANIOS_OPTS} onSelect={setNacAnio} />
+                    </View>
+                  </View>
+                </Field>
 
-        <PrimaryButton label="Cerrar sesión" variant="danger" onPress={handleLogout} />
-        <AppText mono style={{ fontSize: 12, color: colors.textGhost, textAlign: "center" }}>
-          cursada 0.1.0
-        </AppText>
-      </View>
+                <Field label="Teléfono">
+                  <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                    <View style={{ width: 108 }}>
+                      <PickerField label="País" value={telPais} placeholder="País" options={PAISES_OPTS} onSelect={setTelPais} />
+                    </View>
+                    <TextInput
+                      style={[inputStyle, { flex: 1 }]}
+                      placeholder={`Ej: ${paisPorIso(telPais).prefijo} 99 123 456`}
+                      placeholderTextColor={colors.textFaint}
+                      keyboardType="phone-pad"
+                      value={telefono}
+                      onChangeText={setTelefono}
+                    />
+                  </View>
+                </Field>
+              </Section>
+
+              <Section title="Estudio">
+                <Field label="Universidad">
+                  <PickerField label="Universidad" value={universidadId} placeholder="Elegí tu universidad" options={universidadOpts} onSelect={setUniversidadId} />
+                  {universidadId === "otra" ? (
+                    <TextInput
+                      style={[inputStyle, { marginTop: spacing.xs }]}
+                      placeholder="Nombre de tu universidad"
+                      placeholderTextColor={colors.textFaint}
+                      value={universidadOtra}
+                      onChangeText={setUniversidadOtra}
+                    />
+                  ) : null}
+                </Field>
+
+                <Field label="Carrera">
+                  {!carreraEsOtra && carreras.length ? (
+                    <PickerField
+                      label="Carrera"
+                      value={carreraIdSeleccionado}
+                      placeholder="Elegí tu carrera"
+                      options={carreraOpts}
+                      onSelect={(v) => {
+                        if (v === "__otra__") {
+                          setCarreraEsOtra(true);
+                          setCarrera("");
+                        } else {
+                          const c = carreras.find((x) => x.id === v);
+                          setCarrera(c?.nombre ?? "");
+                        }
+                      }}
+                    />
+                  ) : (
+                    <TextInput
+                      style={inputStyle}
+                      placeholder="Ej: Lic. en Administración de Empresas"
+                      placeholderTextColor={colors.textFaint}
+                      value={carrera}
+                      onChangeText={setCarrera}
+                    />
+                  )}
+                  {carreraEsOtra && carreras.length ? (
+                    <PressableScale scaleTo={0.98} onPress={() => setCarreraEsOtra(false)}>
+                      <AppText weight="500" style={{ fontSize: 12, color: colors.accentText, marginTop: 4 }}>
+                        Elegir de la lista de {universidadOpts.find((o) => o.value === universidadId)?.label}
+                      </AppText>
+                    </PressableScale>
+                  ) : null}
+                </Field>
+              </Section>
+
+              <PrimaryButton label={saving ? "Guardando…" : saved ? "Guardado ✓" : "Guardar cambios"} onPress={handleGuardar} disabled={saving} />
+            </>
+          ) : null}
+
+          <View style={{ backgroundColor: colors.surface, borderRadius: radii.sm, overflow: "hidden" }}>
+            <SettingsRow label="Semestre activo" onPress={() => router.push("/semestre-activo")} />
+            <SettingsRow label="Notificaciones" toggle />
+            <SettingsRow label="Apariencia" value="Oscuro" last />
+          </View>
+
+          <View style={{ backgroundColor: colors.surface, borderRadius: radii.sm, overflow: "hidden" }}>
+            <SettingsRow label="Privacidad y datos" />
+            <SettingsRow label="Ayuda" last />
+          </View>
+
+          <PrimaryButton label="Cerrar sesión" variant="danger" onPress={handleLogout} />
+          <AppText mono style={{ fontSize: 12, color: colors.textGhost, textAlign: "center" }}>
+            cursada 0.1.0
+          </AppText>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

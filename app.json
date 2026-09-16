@@ -27,6 +27,12 @@
       "expo-asset",
       "expo-font",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Cursada usa tu galería para elegir tu foto de perfil."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",

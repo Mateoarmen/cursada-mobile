@@ -4,7 +4,7 @@
 // estas pantallas deberían leer de `materias`/`agenda`/`horario` en vez de acá.
 // TODO(backend): reemplazar por fetch real una vez extendido el schema.
 
-import { colors } from "@/theme/tokens";
+import { colors, materiaColors, type EstadoMateria, type MateriaColorId, type Tone } from "@/theme/tokens";
 
 export type DemoEvaluacion = {
   id: string;
@@ -21,6 +21,18 @@ export type DemoMateria = {
   codigo: string;
   creditos: number;
   color: string;
+  colorId: MateriaColorId;
+  docente: string;
+  estado: EstadoMateria;
+  // Tono académico del ring/nota — independiente del badge de estado (ver
+  // tokens.ts: "cursando" con buen promedio es tone:"success" igual, el
+  // badge sigue gris). Replica `toneDe()` de runtime.js, calculado acá a
+  // mano porque es data de muestra fija.
+  tone: Tone;
+  salon: string;
+  escalaTotal: number; // 12 = "Nota 0–12", 100 = "Porcentaje", otro = "Puntaje N"
+  escalaAprob: number;
+  escalaExon?: number;
   progreso: number; // 0-1, avance hacia exoneración/aprobación
   promedio: number;
   horarioResumen: string;
@@ -28,13 +40,25 @@ export type DemoMateria = {
   evaluaciones: DemoEvaluacion[];
 };
 
+function accentOf(colorId: MateriaColorId) {
+  return materiaColors[colorId].strong;
+}
+
 export const demoMaterias: DemoMateria[] = [
   {
     id: "con-201",
     nombre: "Contabilidad II",
     codigo: "CON-201",
     creditos: 8,
-    color: colors.accent,
+    colorId: "azul",
+    color: accentOf("azul"),
+    docente: "Prof. Andrea Ríos",
+    estado: "cursando",
+    tone: "success",
+    salon: "Central · Aula 402",
+    escalaTotal: 12,
+    escalaAprob: 6,
+    escalaExon: 9,
     progreso: 0.7,
     promedio: 8.4,
     horarioResumen: "Lun 18:00–20:00",
@@ -49,7 +73,14 @@ export const demoMaterias: DemoMateria[] = [
     nombre: "Estadística Aplicada",
     codigo: "EST-118",
     creditos: 6,
-    color: colors.cyan,
+    colorId: "turquesa",
+    color: accentOf("turquesa"),
+    docente: "Prof. Martín Souza",
+    estado: "cursando",
+    tone: "warning",
+    salon: "Cuareim · Aula 210",
+    escalaTotal: 12,
+    escalaAprob: 6,
     progreso: 0.55,
     promedio: 6.1,
     horarioResumen: "Mié 19:00–21:00",
@@ -63,7 +94,14 @@ export const demoMaterias: DemoMateria[] = [
     nombre: "Derecho Comercial",
     codigo: "DER-330",
     creditos: 7,
-    color: colors.danger,
+    colorId: "coral",
+    color: accentOf("coral"),
+    docente: "Prof. Lucía Fernández",
+    estado: "recursando",
+    tone: "danger",
+    salon: "Central · Aula 118",
+    escalaTotal: 12,
+    escalaAprob: 6,
     progreso: 0.4,
     promedio: 5.0,
     horarioResumen: "Jue 18:00–20:00",
@@ -77,7 +115,15 @@ export const demoMaterias: DemoMateria[] = [
     nombre: "Marketing Estratégico",
     codigo: "MKT-212",
     creditos: 6,
-    color: colors.purple,
+    colorId: "indigo",
+    color: accentOf("indigo"),
+    docente: "Prof. Nicolás Bianchi",
+    estado: "cursando",
+    tone: "success",
+    salon: "Pocitos · Aula 305",
+    escalaTotal: 12,
+    escalaAprob: 6,
+    escalaExon: 9,
     progreso: 0.85,
     promedio: 9.1,
     horarioResumen: "Mar 21:00–23:00",
@@ -91,7 +137,14 @@ export const demoMaterias: DemoMateria[] = [
     nombre: "Finanzas Corporativas",
     codigo: "FIN-260",
     creditos: 8,
-    color: colors.success,
+    colorId: "verde",
+    color: accentOf("verde"),
+    docente: "Prof. Camila Duarte",
+    estado: "aprobada",
+    tone: "success",
+    salon: "Central · Aula 210",
+    escalaTotal: 12,
+    escalaAprob: 6,
     progreso: 0.3,
     promedio: 7.8,
     horarioResumen: "Vie 18:00–20:00",
@@ -100,45 +153,178 @@ export const demoMaterias: DemoMateria[] = [
       { id: "fin-p1", nombre: "Parcial 1", estado: "aprobada", nota: 8, notaMax: 12 },
     ],
   },
+  {
+    id: "aud-140",
+    nombre: "Auditoría I",
+    codigo: "AUD-140",
+    creditos: 6,
+    colorId: "amarillo",
+    color: accentOf("amarillo"),
+    docente: "Prof. Diego Pereira",
+    estado: "pendiente",
+    tone: "neutral",
+    salon: "Sin salón asignado",
+    escalaTotal: 100,
+    escalaAprob: 70,
+    progreso: 0,
+    promedio: 0,
+    horarioResumen: "Sin horario aún",
+    ubicacionResumen: "Sin salón asignado",
+    evaluaciones: [],
+  },
 ];
 
+// Réplica del modelo real de `agenda` (ver agendaToRow/rowToAgenda en
+// runtime.js): kind materia/personal, itemKind evaluación/tarea sólo para
+// materia, hecho + nota (nota sólo aplica a evaluaciones — agendaBadgeInfo
+// en src/lib/agenda.ts distingue "Rendido" de "Esperando nota" con esto).
 export type DemoAgendaItem = {
   id: string;
+  kind: "materia" | "personal";
+  itemKind?: "evaluacion" | "tarea"; // sólo si kind === "materia"
+  materiaId?: string;
+  tipo: string; // texto libre: "Parcial", "Entrega", "Final", "Personal"...
   titulo: string;
-  materiaNombre: string;
-  tipoLabel: string;
-  grupo: "vencida" | "esta-semana" | "proximas";
-  estadoLabel: string;
-  accentColor: string;
+  fecha: string; // ISO yyyy-mm-dd
+  hora?: string; // "HH:MM"
+  todoElDia?: boolean; // sólo eventos personales
+  hecho: boolean;
+  nota?: number | null;
+  notaMaxima?: number;
+  tag?: { label: string; color: string };
 };
 
+// Fechas relativas a hoy para que la agenda de muestra siempre caiga en
+// vencidas/esta-semana/próximamente de forma realista, sin fechas fijas
+// que queden viejas.
+function isoOffset(dias: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
 export const demoAgenda: DemoAgendaItem[] = [
+  // Vencidas
   {
-    id: "ev-1",
+    id: "ag-1",
+    kind: "materia",
+    itemKind: "tarea",
+    materiaId: "con-201",
+    tipo: "Entrega",
     titulo: "Ejercicios de conciliación",
-    materiaNombre: "Contabilidad II",
-    tipoLabel: "Tarea",
-    grupo: "vencida",
-    estadoLabel: "hace 8 d",
-    accentColor: colors.danger,
+    fecha: isoOffset(-8),
+    hecho: false,
   },
   {
-    id: "ev-2",
+    id: "ag-2",
+    kind: "materia",
+    itemKind: "evaluacion",
+    materiaId: "der-330",
+    tipo: "Recuperatorio",
+    titulo: "Parcial 1 · recuperatorio",
+    fecha: isoOffset(-2),
+    hora: "18:00",
+    hecho: false,
+  },
+  // Esta semana
+  {
+    id: "ag-3",
+    kind: "materia",
+    itemKind: "evaluacion",
+    materiaId: "con-201",
+    tipo: "Parcial",
     titulo: "Parcial 2",
-    materiaNombre: "Contabilidad II",
-    tipoLabel: "mié 19:00",
-    grupo: "esta-semana",
-    estadoLabel: "en 2 d",
-    accentColor: colors.accentDeep,
+    fecha: isoOffset(2),
+    hora: "19:00",
+    hecho: false,
   },
   {
-    id: "ev-3",
+    id: "ag-4",
+    kind: "materia",
+    itemKind: "tarea",
+    materiaId: "mkt-212",
+    tipo: "Entrega",
     titulo: "Entrega · Plan de medios",
-    materiaNombre: "Marketing Estratégico",
-    tipoLabel: "vie 23:59",
-    grupo: "esta-semana",
-    estadoLabel: "en 4 d",
-    accentColor: colors.cyan,
+    fecha: isoOffset(4),
+    hora: "23:59",
+    hecho: false,
+    tag: { label: "Grupal", color: colors.purple },
+  },
+  {
+    id: "ag-5",
+    kind: "personal",
+    tipo: "Personal",
+    titulo: "Cumpleaños de mamá",
+    fecha: isoOffset(5),
+    todoElDia: true,
+    hecho: false,
+  },
+  // Próximamente (dos meses distintos, para el separador de mes)
+  {
+    id: "ag-6",
+    kind: "materia",
+    itemKind: "evaluacion",
+    materiaId: "est-118",
+    tipo: "Final",
+    titulo: "Final",
+    fecha: isoOffset(18),
+    hora: "14:00",
+    hecho: false,
+  },
+  {
+    id: "ag-7",
+    kind: "materia",
+    itemKind: "tarea",
+    materiaId: "aud-140",
+    tipo: "Entrega",
+    titulo: "Informe final de auditoría",
+    fecha: isoOffset(40),
+    hecho: false,
+    tag: { label: "Importante", color: colors.danger },
+  },
+  {
+    id: "ag-8",
+    kind: "personal",
+    tipo: "Personal",
+    titulo: "Vacaciones de invierno",
+    fecha: isoOffset(55),
+    todoElDia: true,
+    hecho: false,
+  },
+  // Completadas
+  {
+    id: "ag-9",
+    kind: "materia",
+    itemKind: "evaluacion",
+    materiaId: "con-201",
+    tipo: "Parcial",
+    titulo: "Parcial 1",
+    fecha: isoOffset(-20),
+    hecho: true,
+    nota: 9,
+    notaMaxima: 12,
+  },
+  {
+    id: "ag-10",
+    kind: "materia",
+    itemKind: "evaluacion",
+    materiaId: "est-118",
+    tipo: "Parcial",
+    titulo: "Parcial 1",
+    fecha: isoOffset(-15),
+    hecho: true,
+    nota: null,
+    notaMaxima: 12,
+  },
+  {
+    id: "ag-11",
+    kind: "materia",
+    itemKind: "tarea",
+    materiaId: "fin-260",
+    tipo: "Entrega",
+    titulo: "TP 1 · flujo de caja",
+    fecha: isoOffset(-12),
+    hecho: true,
   },
 ];
 

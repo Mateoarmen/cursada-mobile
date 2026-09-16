@@ -38,6 +38,12 @@ export const colors = {
   dangerSoft: "rgba(255,59,48,0.16)",
   dangerSofter: "rgba(255,59,48,0.10)",
 
+  // Estado "cursando/pendiente" (ni éxito ni riesgo) — mismo gris que usa
+  // el badge neutral de la web (ESTADO_TONE) para esos dos estados.
+  neutral: "#C7C7CC",
+  neutralText: "rgba(245,245,247,0.7)",
+  neutralSoft: "rgba(199,199,204,0.14)",
+
   purple: "#BF5AF2",
   cyan: "#64D2FF",
   cyanSoft: "rgba(100,210,255,0.10)",
@@ -46,6 +52,56 @@ export const colors = {
   white: "#FFFFFF",
   black: "#000000",
 } as const;
+
+// Los 9 colores de identidad de materia — mismos valores que `ACCENTS` en
+// runtime.js (web). "strong" es el color sólido (tile, ring, dot); "soft"
+// el fondo tenue a igual alpha que ya usa el resto de la paleta dark
+// (~0.12–0.2, ver accentSoft/dangerSoft arriba) en vez del alpha pensado
+// para fondo claro que usa el badge de la web.
+export const materiaColors = {
+  azul: { strong: "#0A63F0", soft: "rgba(10,99,240,0.18)" },
+  verde: { strong: "#34C759", soft: "rgba(52,199,89,0.16)" },
+  violeta: { strong: "#5E5CE6", soft: "rgba(94,92,230,0.18)" },
+  coral: { strong: "#FF6B5B", soft: "rgba(255,107,91,0.18)" },
+  amarillo: { strong: "#FFD60A", soft: "rgba(255,214,10,0.2)" },
+  turquesa: { strong: "#64D2FF", soft: "rgba(100,210,255,0.18)" },
+  rosa: { strong: "#FF375F", soft: "rgba(255,55,95,0.18)" },
+  indigo: { strong: "#BF5AF2", soft: "rgba(191,90,242,0.18)" },
+  gris: { strong: "#98989D", soft: "rgba(152,152,157,0.18)" },
+} as const;
+
+export type MateriaColorId = keyof typeof materiaColors;
+
+// Tono académico (riesgo) → color sólido. Corresponde 1:1 a `TONE` en
+// runtime.js. "neutral" es "sin notas cargadas todavía", no un estado de
+// riesgo. Independiente del tono de *estado* (cursando/aprobada/...): una
+// materia "cursando" con buen promedio usa tone:"success" en el ring pero
+// sigue mostrando el badge gris de "Cursando".
+export const tone = {
+  success: { strong: colors.success, text: colors.successText, soft: colors.successSoft },
+  warning: { strong: colors.warning, text: colors.warningText, soft: colors.warningSoft },
+  danger: { strong: colors.danger, text: colors.dangerText, soft: colors.dangerSoft },
+  neutral: { strong: colors.neutral, text: colors.neutralText, soft: colors.neutralSoft },
+} as const;
+
+export type Tone = keyof typeof tone;
+
+// Mismos 4 estados de materia que la web (ver ESTADO_LABEL/ESTADO_TONE).
+export const estadoLabel = {
+  cursando: "Cursando",
+  aprobada: "Aprobada",
+  recursando: "Recursando",
+  pendiente: "Pendiente",
+} as const;
+
+export type EstadoMateria = keyof typeof estadoLabel;
+
+export const estadoTone: Record<EstadoMateria, Tone> = {
+  cursando: "neutral",
+  aprobada: "success",
+  recursando: "danger",
+  pendiente: "neutral",
+};
 
 export const gradients = {
   accent: [colors.accent, colors.accentDeep] as const,
