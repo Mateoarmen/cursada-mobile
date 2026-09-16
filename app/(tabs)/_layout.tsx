@@ -6,6 +6,7 @@ import { Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, radii } from "@/theme/tokens";
 import { AppText, PressableScale } from "@/components/ui";
+import { AsistenciaDiarioGate } from "@/components/AsistenciaDiarioGate";
 
 // Tabbar flotante "vidrio líquido" — implementada 100% a mano en vez de vía
 // tabBarStyle/tabBarButton/tabBarIcon. El renderer "uikit" que trae esta
@@ -100,6 +101,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="horario" />
       </Tabs>
       <FloatingTabBar />
+      <AsistenciaDiarioGate />
     </View>
   );
 }

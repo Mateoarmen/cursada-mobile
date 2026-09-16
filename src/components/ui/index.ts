@@ -9,4 +9,5 @@ export { Pill } from "./Pill";
 export { PressableScale } from "./PressableScale";
 export { PrimaryButton } from "./PrimaryButton";
 export { ProgressRing } from "./ProgressRing";
+export { RangeSlider } from "./RangeSlider";
 export { Switch } from "./Switch";

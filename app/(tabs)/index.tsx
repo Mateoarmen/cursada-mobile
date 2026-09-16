@@ -128,7 +128,7 @@ export default function InicioScreen() {
             <AccesoButton icon="folder-outline" label="Materia" onPress={() => router.push("/(tabs)/materias")} />
             <AccesoButton icon="checkmark-done-outline" label={"Tarea o\nevaluación"} onPress={() => router.push("/(tabs)/agenda")} />
             <AccesoButton icon="calendar-outline" label={"Evento\npersonal"} onPress={() => {}} />
-            <AccesoButton icon="time-outline" label="Ver horario" onPress={() => router.push("/(tabs)/horario")} />
+            <AccesoButton icon="checkbox-outline" label="Asistencia" onPress={() => router.push("/asistencia")} />
           </View>
         </View>
 

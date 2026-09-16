@@ -5,64 +5,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
-import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, type EstadoMateria, type MateriaColorId } from "@/theme/tokens";
+import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, type EstadoMateria } from "@/theme/tokens";
 import { AppText, Fab, Pill, PressableScale, PrimaryButton, ProgressRing } from "@/components/ui";
 import { demoMaterias, type DemoMateria } from "@/data/demoContent";
-import { formatHorario } from "@/lib/catalog";
+import { escalaLabel, formatValor, toRow, unidad } from "@/lib/materias";
 
 type Row = DemoMateria;
 type FiltroEstado = "todas" | EstadoMateria;
 type Vista = "tarjetas" | "tabla";
 
 const FILTROS_ORDEN: EstadoMateria[] = ["cursando", "aprobada", "pendiente", "recursando"];
-
-// Réplica de `escLabel()` en runtime.js — mismo texto exacto para las 3
-// escalas (nota 0–12, porcentaje, puntaje libre).
-function escalaLabel(total: number) {
-  if (total === 12) return "Nota 0–12";
-  if (total === 100) return "Porcentaje";
-  return `Puntaje ${total}`;
-}
-
-function unidad(total: number) {
-  if (total === 12) return "";
-  if (total === 100) return "%";
-  return " pts";
-}
-
-function formatValor(v: number, total: number) {
-  return total === 12 ? v.toFixed(1) : String(Math.round(v));
-}
-
-// Combina lo real de Supabase (nombre/color) con las métricas de muestra
-// hasta que el schema tenga esas columnas.
-// TODO(backend): sacar el merge con demoMaterias una vez existan esos campos.
-function toRow(materia: Materia): Row {
-  const match = demoMaterias.find((d) => d.nombre.toLowerCase() === materia.nombre.toLowerCase());
-  if (match) return match;
-  const colorId = (materia.color_id && materia.color_id in materiaColors ? materia.color_id : "gris") as MateriaColorId;
-  const esc = "tipo" in materia.esc ? materia.esc : null;
-  return {
-    id: materia.id,
-    nombre: materia.nombre,
-    codigo: "",
-    creditos: 0,
-    colorId,
-    color: materiaColors[colorId].strong,
-    docente: materia.doc || "Sin docente cargado",
-    estado: materia.estado,
-    tone: "neutral",
-    salon: materia.salon || "Sin salón asignado",
-    escalaTotal: esc?.total ?? 12,
-    escalaAprob: esc?.aprob ?? 6,
-    escalaExon: esc?.exoneracion ?? undefined,
-    progreso: 0,
-    promedio: 0,
-    horarioResumen: formatHorario(materia.bloques),
-    ubicacionResumen: materia.salon || "Sin salón asignado",
-    evaluaciones: [],
-  };
-}
 
 function materiaAbrev(nombre: string) {
   return (nombre.trim().split(/\s+/)[0] ?? "").slice(0, 4).toUpperCase();
