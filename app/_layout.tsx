@@ -75,6 +75,7 @@ function RootLayoutNav({ hasSession, fontsAndSessionReady }: { hasSession: boole
         <Stack.Screen name="perfil" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="semestre-activo" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="asistencia" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="progreso" options={{ animation: "slide_from_right" }} />
       </Stack>
     </>
   );

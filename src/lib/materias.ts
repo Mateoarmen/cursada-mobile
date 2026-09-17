@@ -132,6 +132,13 @@ export function materiasAprobadasCount(materiasAll: Materia[]): number {
   return materiasAll.filter((m) => m.estado === "aprobada").length;
 }
 
+// Réplica exacta de materiasAprobadasSinNota() (runtime.js, línea 969):
+// materias "aprobada" que no tienen ninguna evaluación calificada — típico
+// de las cargadas como progreso previo en el onboarding, sin nota real.
+export function materiasAprobadasSinNota(materiasAll: Materia[], agendaAll: EventoAgenda[]): MateriaComputada[] {
+  return computeMaterias(materiasAll, agendaAll).filter((m) => m.raw.estado === "aprobada" && !m.notasEvals.length);
+}
+
 // Réplica exacta de agendaDeSemestre(semestreId) (runtime.js).
 export function agendaDeSemestre(agendaAll: EventoAgenda[], materiasAll: Materia[], semestreId: string | null): EventoAgenda[] {
   if (!semestreId) return agendaAll;
