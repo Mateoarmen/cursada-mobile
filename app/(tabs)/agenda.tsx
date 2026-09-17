@@ -7,8 +7,8 @@ import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { colors, materiaColors, radii, spacing, tone, type Tone } from "@/theme/tokens";
 import { AppText, BottomSheet, Fab, Pill, PressableScale, PrimaryButton } from "@/components/ui";
-import { demoAgenda, demoMaterias, type DemoAgendaItem } from "@/data/demoContent";
-import { toRow } from "@/lib/materias";
+import { demoAgenda, type DemoAgendaItem } from "@/data/demoContent";
+import { materiaComputadaToRow } from "@/lib/materias";
 import { useAgenda } from "@/hooks/useAgenda";
 import {
   agendaBadgeInfo,
@@ -214,10 +214,9 @@ function AgendaGroup({
 
 export default function AgendaScreen() {
   const agenda = useAgenda();
-  // Fallback a materias de muestra SOLO si el usuario todavía no tiene
-  // ninguna en Supabase (mismo criterio que Materias) — hace falta acá para
-  // que el picker de "+ Nueva evaluación/tarea" mande un materia_id real que
-  // exista de verdad (si no, el insert rompe por la FK a materias).
+  // Materias reales del usuario, sin fallback a demoMaterias (ver "el hack
+  // a eliminar" en materias.tsx) — se usan sólo para el picker de "+ Nueva
+  // evaluación/tarea" y para resolver nombre/color en cada fila.
   const [supaMaterias, setSupaMaterias] = useState<Materia[] | null>(null);
   useEffect(() => {
     supabase
@@ -225,18 +224,15 @@ export default function AgendaScreen() {
       .select("*")
       .then(({ data }) => setSupaMaterias(data ?? []));
   }, []);
-  const materiasRows = useMemo(() => (supaMaterias && supaMaterias.length > 0 ? supaMaterias.map(toRow) : demoMaterias), [supaMaterias]);
+  const materiasRows = useMemo(() => (supaMaterias ?? []).map((m) => materiaComputadaToRow(m, agenda.rows ?? [])), [supaMaterias, agenda.rows]);
 
-  // Ítems "materia" (evaluación/tarea) salen de la tabla real `agenda`; si
-  // el usuario todavía no tiene ninguna fila, se muestra la agenda de
-  // muestra en su lugar (mismo criterio que Materias). Los eventos
-  // "personales" no viven en `agenda` (van a una tabla aparte, `personal`,
-  // fuera de alcance de esta pasada) — siguen siendo sólo locales.
-  const usandoDemo = !agenda.hasRows;
-  const [demoMateriaItems, setDemoMateriaItems] = useState<DemoAgendaItem[]>(() => demoAgenda.filter((i) => i.kind === "materia"));
+  // Ítems "materia" (evaluación/tarea) salen de la tabla real `agenda`, sin
+  // fallback a datos de muestra (mismo criterio que Detalle de materia).
+  // Los eventos "personales" no viven en `agenda` (van a una tabla aparte,
+  // `personal`, fuera de alcance de esta pasada) — siguen siendo sólo
+  // locales, con datos de muestra como punto de partida.
   const [personalItems, setPersonalItems] = useState<DemoAgendaItem[]>(() => demoAgenda.filter((i) => i.kind === "personal"));
-  const materiaItems = usandoDemo ? demoMateriaItems : agenda.items;
-  const items = useMemo(() => [...materiaItems, ...personalItems], [materiaItems, personalItems]);
+  const items = useMemo(() => [...agenda.items, ...personalItems], [agenda.items, personalItems]);
 
   const [filtroKind, setFiltroKind] = useState<"" | "evaluacion" | "tarea">("");
   const [filtroMateriaId, setFiltroMateriaId] = useState("");
@@ -300,11 +296,7 @@ export default function AgendaScreen() {
   const avisarError = (titulo: string) => Alert.alert(titulo, "Revisá tu conexión e intentá de nuevo.");
 
   const toggleHecho = async (id: string) => {
-    if (usandoDemo) {
-      setDemoMateriaItems((prev) => prev.map((it) => (it.id === id ? { ...it, hecho: !it.hecho } : it)));
-      return;
-    }
-    const actual = materiaItems.find((it) => it.id === id);
+    const actual = agenda.items.find((it) => it.id === id);
     if (!actual) return;
     const ok = await agenda.marcarHecho(id, !actual.hecho);
     if (!ok) avisarError("No se pudo actualizar");
@@ -313,10 +305,6 @@ export default function AgendaScreen() {
   const eliminarItem = async (id: string) => {
     if (personalItems.some((p) => p.id === id)) {
       setPersonalItems((prev) => prev.filter((p) => p.id !== id));
-      return;
-    }
-    if (usandoDemo) {
-      setDemoMateriaItems((prev) => prev.filter((it) => it.id !== id));
       return;
     }
     const ok = await agenda.eliminar(id);
@@ -351,21 +339,6 @@ export default function AgendaScreen() {
       return;
     }
     const tipo = crearModo.itemKind === "evaluacion" ? "Parcial" : "Entrega";
-    if (usandoDemo) {
-      const nuevo: DemoAgendaItem = {
-        id: `local-${Date.now()}`,
-        kind: "materia",
-        itemKind: crearModo.itemKind,
-        materiaId: creMateriaId,
-        tipo,
-        titulo: creTitulo.trim(),
-        fecha: isoToday(),
-        hecho: false,
-      };
-      setDemoMateriaItems((prev) => [...prev, nuevo]);
-      setCrearModo(null);
-      return;
-    }
     const ok = await agenda.crear({ materiaId: creMateriaId, kind: crearModo.itemKind, tipo, titulo: creTitulo.trim(), fecha: isoToday() });
     if (!ok) {
       avisarError("No se pudo crear");
@@ -378,12 +351,6 @@ export default function AgendaScreen() {
     if (!notaSheetItem) return;
     const n = Number(notaInput.replace(",", "."));
     if (!Number.isFinite(n)) return;
-    if (usandoDemo) {
-      setDemoMateriaItems((prev) => prev.map((it) => (it.id === notaSheetItem.id ? { ...it, nota: n } : it)));
-      setNotaSheetItem(null);
-      setNotaInput("");
-      return;
-    }
     const ok = await agenda.asignarNota(notaSheetItem.id, n);
     if (!ok) {
       avisarError("No se pudo guardar la nota");

@@ -1,8 +1,17 @@
 // Contenido de muestra para poder previsualizar el diseño "premium" con datos
-// reales de la carrera. El schema actual de Supabase (ver src/types/database.ts)
-// todavía no tiene columnas para progreso/nota/créditos/aula — cuando se agreguen,
-// estas pantallas deberían leer de `materias`/`agenda`/`horario` en vez de acá.
-// TODO(backend): reemplazar por fetch real una vez extendido el schema.
+// reales de la carrera. Las columnas que hacen falta para el cálculo real
+// (materias.esc/estado/componentes_fijos, agenda.nota/hecho, etc.) YA
+// EXISTEN en Supabase — Materias, Detalle de materia, los KPIs/riesgo/
+// progreso de Inicio y Horario ya no usan nada de este archivo, calculan
+// todo en vivo (ver src/lib/materias.ts, puerto de runtime.js). Lo que
+// sigue leyendo de acá:
+// - app/progreso.tsx (pantalla "Progreso" completa: historial de
+//   semestres, pendientes, meta de carrera) y app/asistencia.tsx +
+//   AsistenciaRow/AsistenciaDiarioGate (asistencia) — fuera de alcance de
+//   este paso, no tienen fetch real todavía.
+// - app/(tabs)/agenda.tsx: sólo los eventos "personales" (demoAgenda
+//   filtrado a kind:"personal"), como punto de partida editable — no hay
+//   tabla `personal` en Supabase todavía.
 
 import { colors, materiaColors, type EstadoMateria, type MateriaColorId, type Tone } from "@/theme/tokens";
 import { nombreDesdePeriodo, PERIODO_ACTUAL, type Bloque } from "@/lib/catalog";

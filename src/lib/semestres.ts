@@ -5,6 +5,7 @@
 // dos updates con activo:true en el mismo batch).
 import { supabase } from "@/lib/supabase";
 import { nombreDesdePeriodo } from "@/lib/catalog";
+import type { Semestre } from "@/types/database";
 
 export async function currentUserId(): Promise<string> {
   const { data, error } = await supabase.auth.getUser();
@@ -98,4 +99,21 @@ export async function setSemestreActivo(id: string): Promise<void> {
   await desactivarTodos(userId);
   const { error } = await supabase.from("semestres").update({ activo: true }).eq("id", id);
   if (error) throw error;
+}
+
+// Réplica de semestresOrdenados() (runtime.js): orden manual del usuario
+// (columna `orden`) con created_at como respaldo/desempate para filas
+// viejas sin `orden` — nunca por nombre ni por posición cruda del array.
+// Trae todos los semestres del usuario (incluidos los históricos, ver
+// obtenerOCrearSemestreHistorico): quien llama filtra si necesita excluirlos.
+export async function semestresOrdenados(): Promise<Semestre[]> {
+  const userId = await currentUserId();
+  const { data, error } = await supabase.from("semestres").select("*").eq("user_id", userId);
+  if (error) throw error;
+  return (data ?? []).slice().sort((a, b) => {
+    if (a.orden != null && b.orden != null && a.orden !== b.orden) return a.orden - b.orden;
+    if (a.orden != null && b.orden == null) return -1;
+    if (a.orden == null && b.orden != null) return 1;
+    return (a.created_at || "").localeCompare(b.created_at || "");
+  });
 }

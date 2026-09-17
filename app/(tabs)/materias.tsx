@@ -1,14 +1,15 @@
 import { useCallback, useMemo, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
-import { FlatList, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, type EstadoMateria } from "@/theme/tokens";
 import { AppText, Fab, Pill, PressableScale, PrimaryButton, ProgressRing } from "@/components/ui";
-import { demoMaterias, type DemoMateria } from "@/data/demoContent";
-import { calcularPuntosObtenidos, escalaLabel, formatValor, toRow, unidad } from "@/lib/materias";
+import type { DemoMateria } from "@/data/demoContent";
+import { escalaLabel, formatValor, materiaComputadaToRow, unidad } from "@/lib/materias";
+import { getSemestreActivoId } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
 
 type Row = DemoMateria;
@@ -200,56 +201,45 @@ function EmptyState({ onPressPrimera }: { onPressPrimera: () => void }) {
 
 export default function MateriasScreen() {
   const [materias, setMaterias] = useState<Materia[] | null>(null);
+  const [cargando, setCargando] = useState(true);
   const [vista, setVista] = useState<Vista>("tarjetas");
   const [filtro, setFiltro] = useState<FiltroEstado>("todas");
   const [query, setQuery] = useState("");
 
   // Refetch al enfocar la pantalla (no sólo al montar) para que el alta/
   // edición/borrado de Materia (ver app/materia/form.tsx) se refleje acá al
-  // volver, sin agregar el objeto local a mano.
+  // volver, sin agregar el objeto local a mano. Acotado al semestre activo
+  // (mismo criterio que computeMateriasDelActivo en runtime.js): sin
+  // semestre activo todavía, no filtra (misma salvedad que la web).
   useFocusEffect(
     useCallback(() => {
-      // TODO: filtrar por el semestre activo (ver pantalla Semestre activo)
-      supabase
-        .from("materias")
-        .select("*")
-        .then(({ data }) => setMaterias(data ?? []));
+      let cancelado = false;
+      setCargando(true);
+      (async () => {
+        const activeId = await getSemestreActivoId();
+        let query = supabase.from("materias").select("*");
+        if (activeId) query = query.eq("semestre_id", activeId);
+        const { data } = await query;
+        if (cancelado) return;
+        setMaterias(data ?? []);
+        setCargando(false);
+      })();
+      return () => {
+        cancelado = true;
+      };
     }, [])
   );
 
   // Agenda/Calendario/Progreso muestran histórico completo a propósito
   // (ver skill cursada-conventions), así que sin filtrar por materia acá:
-  // se agrupa todo por materia_id para sumar los puntos de cada una.
+  // computeMateria (dentro de materiaComputadaToRow) filtra por materiaId
+  // internamente, igual que la web.
   const agenda = useAgenda();
-  const agendaByMateria = useMemo(() => {
-    const map = new Map<string, { hecho: boolean; nota: number | null }[]>();
-    (agenda.rows ?? []).forEach((r) => {
-      if (!r.materia_id) return;
-      const arr = map.get(r.materia_id) ?? [];
-      arr.push({ hecho: r.hecho, nota: r.nota });
-      map.set(r.materia_id, arr);
-    });
-    return map;
-  }, [agenda.rows]);
 
   const rows = useMemo<Row[]>(() => {
-    if (materias && materias.length > 0) {
-      return materias.map((m) => {
-        const row = toRow(m);
-        // Anillo/nota de la tarjeta: mismos puntos ya cargados que el
-        // anillo de Detalle de materia (ver calcularPuntosObtenidos en
-        // lib/materias.ts) — antes venían siempre en 0 (promedio de
-        // muestra hardcodeado), por eso el anillo nunca se llenaba.
-        const { puntos, hayPuntos, tone: ringTone } = calcularPuntosObtenidos(
-          { aprob: row.escalaAprob, exoneracion: row.escalaExon ?? null },
-          agendaByMateria.get(m.id) ?? [],
-          row.componentesFijos
-        );
-        return { ...row, promedio: hayPuntos ? puntos : 0, tone: ringTone };
-      });
-    }
-    return demoMaterias;
-  }, [materias, agendaByMateria]);
+    if (!materias) return [];
+    return materias.map((m) => materiaComputadaToRow(m, agenda.rows ?? []));
+  }, [materias, agenda.rows]);
 
   const counts = useMemo(() => {
     const c: Partial<Record<FiltroEstado, number>> = { todas: rows.length };
@@ -353,7 +343,11 @@ export default function MateriasScreen() {
         ) : null}
       </View>
 
-      {rows.length === 0 ? (
+      {cargando && rows.length === 0 ? (
+        <View style={{ paddingTop: spacing.xxxl * 2, alignItems: "center" }}>
+          <ActivityIndicator color={colors.textTertiary} />
+        </View>
+      ) : rows.length === 0 ? (
         <EmptyState onPressPrimera={onNuevaMateria} />
       ) : vista === "tarjetas" ? (
         <FlatList

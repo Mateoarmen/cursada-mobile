@@ -1,25 +1,25 @@
-import { router } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSession } from "@/hooks/useSession";
-import { colors, radii, spacing } from "@/theme/tokens";
+import { supabase } from "@/lib/supabase";
+import type { Materia, Semestre } from "@/types/database";
+import { colors, materiaColors, radii, spacing, type Tone } from "@/theme/tokens";
 import { AppText, Avatar, Pill, PressableScale, PrimaryButton, ProgressRing } from "@/components/ui";
-import {
-  demoHome,
-  demoInicioKpis,
-  demoMateriasRiesgo,
-  demoProgresoSemestre,
-  type DemoTone,
-} from "@/data/demoContent";
+import { demoHome } from "@/data/demoContent";
+import { computeKpis, computeMaterias, computeProgresoSemestreActivo, formatValor } from "@/lib/materias";
+import { getSemestreActivoId, semestresOrdenados } from "@/lib/semestres";
+import { useAgenda } from "@/hooks/useAgenda";
 
 const hoy = new Date();
 const fechaLabel = hoy
   .toLocaleDateString("es-UY", { weekday: "long", day: "numeric", month: "long" })
   .replace(/^\w/, (c) => c.toUpperCase());
 
-const TONE_COLOR: Record<DemoTone, string> = {
+const TONE_COLOR: Record<Tone, string> = {
   success: colors.successText,
   warning: colors.warningText,
   danger: colors.dangerText,
@@ -31,6 +31,46 @@ export default function InicioScreen() {
   const email = session?.user?.email ?? "";
   const nombre = email ? email.split("@")[0] : "";
   const initial = email ? email[0]!.toUpperCase() : "?";
+
+  // KPIs/materias en riesgo/progreso del semestre: mismo cálculo real que
+  // Materias/Detalle (ver computeKpis/computeMaterias/
+  // computeProgresoSemestreActivo en lib/materias.ts), en vez de
+  // demoInicioKpis/demoMateriasRiesgo/demoProgresoSemestre.
+  const [materiasAll, setMateriasAll] = useState<Materia[] | null>(null);
+  const [semestres, setSemestres] = useState<Semestre[] | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const agenda = useAgenda();
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelado = false;
+      (async () => {
+        const [{ data: materias }, sems, id] = await Promise.all([supabase.from("materias").select("*"), semestresOrdenados(), getSemestreActivoId()]);
+        if (cancelado) return;
+        setMateriasAll(materias ?? []);
+        setSemestres(sems);
+        setActiveId(id);
+      })();
+      return () => {
+        cancelado = true;
+      };
+    }, [])
+  );
+
+  const materiasDelActivo = useMemo(
+    () => (materiasAll && agenda.rows ? computeMaterias(materiasAll, agenda.rows, activeId) : null),
+    [materiasAll, agenda.rows, activeId]
+  );
+  const kpis = useMemo(() => (materiasAll && agenda.rows ? computeKpis(materiasAll, agenda.rows, activeId) : null), [materiasAll, agenda.rows, activeId]);
+  const materiasRiesgo = useMemo(
+    () => (materiasDelActivo ?? []).filter((m) => m.tone === "danger" || m.tone === "warning"),
+    [materiasDelActivo]
+  );
+  const cursandoCount = useMemo(() => (materiasDelActivo ?? []).filter((m) => m.raw.estado === "cursando").length, [materiasDelActivo]);
+  const progresoSemestre = useMemo(
+    () => (materiasAll && agenda.rows && semestres ? computeProgresoSemestreActivo(materiasAll, agenda.rows, semestres, activeId) : null),
+    [materiasAll, agenda.rows, semestres, activeId]
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
@@ -93,31 +133,31 @@ export default function InicioScreen() {
           </View>
         </LinearGradient>
 
-        {/* KPIs */}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.smd }}>
-          <KpiCard icon="school-outline" label="Cursando" valor={demoInicioKpis.cursando.valor} sub={demoInicioKpis.cursando.sub} />
-          <KpiCard
-            icon="alert-circle-outline"
-            label="Próxima evaluación"
-            valor={demoInicioKpis.proximaEvaluacion.valor}
-            sub={demoInicioKpis.proximaEvaluacion.sub}
-            tone={demoInicioKpis.proximaEvaluacion.tone}
-          />
-          <KpiCard
-            icon="stats-chart-outline"
-            label="Promedio general"
-            valor={demoInicioKpis.promedioGeneral.valor}
-            sub={demoInicioKpis.promedioGeneral.sub}
-            tone={demoInicioKpis.promedioGeneral.tone}
-          />
-          <KpiCard
-            icon="list-outline"
-            label="Pendientes esta semana"
-            valor={demoInicioKpis.pendientesSemana.valor}
-            sub={demoInicioKpis.pendientesSemana.sub}
-            tone={demoInicioKpis.pendientesSemana.tone}
-          />
-        </View>
+        {/* KPIs — réplica de computeKpis() (runtime.js): "Cursando" es un
+            agregado propio de mobile (no existe en la web), las otras 3 sí
+            (Próxima evaluación se OCULTA sin nada pendiente, Promedio
+            general cae a estado vacío con CTA en vez de ocultarse,
+            Pendientes esta semana nunca se oculta). */}
+        {kpis ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.smd }}>
+            <KpiCard icon="school-outline" label="Cursando" valor={String(cursandoCount)} sub="este semestre" />
+            {kpis.proximaEvaluacion ? (
+              <KpiCard icon="alert-circle-outline" label="Próxima evaluación" valor={kpis.proximaEvaluacion.valor} sub={kpis.proximaEvaluacion.sub} tone="warning" />
+            ) : null}
+            {kpis.promedioGeneral.empty ? (
+              <KpiCard icon="stats-chart-outline" label="Promedio general" valor="—" sub={kpis.promedioGeneral.ctaTexto} />
+            ) : (
+              <KpiCard icon="stats-chart-outline" label="Promedio general" valor={kpis.promedioGeneral.valor} sub={kpis.promedioGeneral.sub} tone="success" />
+            )}
+            <KpiCard
+              icon="list-outline"
+              label="Pendientes esta semana"
+              valor={kpis.pendientesSemana.valor}
+              sub={kpis.pendientesSemana.sub}
+              tone={kpis.pendientesSemana.tone}
+            />
+          </View>
+        ) : null}
 
         {/* Accesos rápidos */}
         <View>
@@ -165,18 +205,19 @@ export default function InicioScreen() {
           ))}
         </View>
 
-        {/* Materias en riesgo */}
-        {demoMateriasRiesgo.length > 0 ? (
+        {/* Materias en riesgo — réplica del panel #riesgo-panel (runtime.js):
+            computeMateriasDelActivo() filtrado a tone danger/warning. */}
+        {materiasRiesgo.length > 0 ? (
           <View>
             <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2, paddingBottom: spacing.sm }}>
               Materias en riesgo
             </AppText>
             <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, paddingHorizontal: spacing.lg }}>
-              {demoMateriasRiesgo.map((m, i) => (
+              {materiasRiesgo.map((m, i) => (
                 <PressableScale
-                  key={m.id}
+                  key={m.raw.id}
                   scaleTo={0.98}
-                  onPress={() => router.push(`/materia/${m.id}`)}
+                  onPress={() => router.push(`/materia/${m.raw.id}`)}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
@@ -187,18 +228,18 @@ export default function InicioScreen() {
                   }}
                 >
                   <ProgressRing
-                    progress={m.actual / m.total}
+                    progress={(m.actual ?? 0) / m.esc.total}
                     size={56}
                     strokeWidth={5}
                     color={TONE_COLOR[m.tone]}
-                    centerValue={m.actual.toFixed(1)}
-                    centerLabel={`/${m.aprob}`}
+                    centerValue={formatValor(m.actual ?? 0, m.esc.tipo)}
+                    centerLabel={`/${formatValor(m.esc.aprob, m.esc.tipo)}`}
                     valueFontSize={14}
                     labelFontSize={10}
                   />
                   <View style={{ flex: 1, gap: 2 }}>
                     <AppText weight="600" style={{ fontSize: 15 }}>
-                      {m.nombre}
+                      {m.raw.nombre}
                     </AppText>
                     <AppText style={{ fontSize: 13, color: TONE_COLOR[m.tone] }}>{m.riesgoTxt}</AppText>
                   </View>
@@ -209,46 +250,62 @@ export default function InicioScreen() {
           </View>
         ) : null}
 
-        {/* Progreso del semestre */}
-        <View>
-          <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingBottom: spacing.sm }}>
-            <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
-              Progreso del semestre
-            </AppText>
-            <AppText mono weight="600" style={{ fontSize: 13, color: TONE_COLOR[demoProgresoSemestre.deltaTone] }}>
-              {demoProgresoSemestre.deltaLabel}
-            </AppText>
-          </View>
-          <PressableScale
-            scaleTo={0.98}
-            onPress={() => router.push("/progreso")}
-            style={{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.lg, flexDirection: "row", gap: spacing.xl, alignItems: "center", flexWrap: "wrap" }}
-          >
-            <ProgressRing
-              progress={demoProgresoSemestre.evaluacionesCalificadas / demoProgresoSemestre.evaluacionesEsperadas}
-              size={96}
-              strokeWidth={9}
-              color={colors.accent}
-              centerValue={`${demoProgresoSemestre.evaluacionesCalificadas}/${demoProgresoSemestre.evaluacionesEsperadas}`}
-              centerLabel="notas"
-              valueFontSize={17}
-              labelFontSize={11}
-            />
-            <View style={{ flex: 1, minWidth: 180, gap: spacing.sm }}>
-              {demoProgresoSemestre.materias.map((m) => (
-                <View key={m.id} style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-                  <View style={{ width: 8, height: 8, borderRadius: radii.round, backgroundColor: m.color }} />
-                  <AppText style={{ fontSize: 13, flex: 1 }} numberOfLines={1}>
-                    {m.nombre}
-                  </AppText>
-                  <AppText mono weight="600" style={{ fontSize: 12, color: TONE_COLOR[m.tone as DemoTone] }}>
-                    {m.notaTxt}/{m.aprob}
-                  </AppText>
-                </View>
-              ))}
+        {/* Progreso del semestre — réplica de progreso-semestre-card
+            (computeProgresoSemestreActivo en runtime.js): delta vs. el
+            semestre cronológicamente anterior + evaluaciones calificadas/
+            esperadas + desglose por materia, peor encaminada primero. */}
+        {progresoSemestre && progresoSemestre.materias.length > 0 ? (
+          <View>
+            <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingBottom: spacing.sm }}>
+              <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
+                Progreso del semestre
+              </AppText>
+              {progresoSemestre.deltaVsAnterior != null && progresoSemestre.nombreAnterior ? (
+                <AppText
+                  mono
+                  weight="600"
+                  style={{ fontSize: 13, color: TONE_COLOR[progresoSemestre.deltaVsAnterior > 0 ? "success" : progresoSemestre.deltaVsAnterior < 0 ? "danger" : "neutral"] }}
+                >
+                  {(progresoSemestre.deltaVsAnterior > 0 ? "▲ " : progresoSemestre.deltaVsAnterior < 0 ? "▼ " : "— ") +
+                    Math.abs(progresoSemestre.deltaVsAnterior) +
+                    ` pts vs. ${progresoSemestre.nombreAnterior}`}
+                </AppText>
+              ) : null}
             </View>
-          </PressableScale>
-        </View>
+            <PressableScale
+              scaleTo={0.98}
+              onPress={() => router.push("/progreso")}
+              style={{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.lg, flexDirection: "row", gap: spacing.xl, alignItems: "center", flexWrap: "wrap" }}
+            >
+              <ProgressRing
+                progress={progresoSemestre.evaluacionesEsperadas > 0 ? progresoSemestre.evaluacionesCalificadas / progresoSemestre.evaluacionesEsperadas : 0}
+                size={96}
+                strokeWidth={9}
+                color={colors.accent}
+                centerValue={`${progresoSemestre.evaluacionesCalificadas}/${progresoSemestre.evaluacionesEsperadas}`}
+                centerLabel="notas"
+                valueFontSize={17}
+                labelFontSize={11}
+              />
+              <View style={{ flex: 1, minWidth: 180, gap: spacing.sm }}>
+                {progresoSemestre.materias.map((m) => {
+                  const colorId = m.raw.color_id && m.raw.color_id in materiaColors ? (m.raw.color_id as keyof typeof materiaColors) : "gris";
+                  return (
+                    <View key={m.raw.id} style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                      <View style={{ width: 8, height: 8, borderRadius: radii.round, backgroundColor: materiaColors[colorId].strong }} />
+                      <AppText style={{ fontSize: 13, flex: 1 }} numberOfLines={1}>
+                        {m.raw.nombre}
+                      </AppText>
+                      <AppText mono weight="600" style={{ fontSize: 12, color: TONE_COLOR[m.tone] }}>
+                        {m.actual != null ? formatValor(m.actual, m.esc.tipo) : "—"}/{formatValor(m.esc.aprob, m.esc.tipo)}
+                      </AppText>
+                    </View>
+                  );
+                })}
+              </View>
+            </PressableScale>
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -265,7 +322,7 @@ function KpiCard({
   label: string;
   valor: string;
   sub: string;
-  tone?: DemoTone;
+  tone?: Tone;
 }) {
   return (
     <View style={{ flexBasis: "47%", flexGrow: 1, backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm }}>

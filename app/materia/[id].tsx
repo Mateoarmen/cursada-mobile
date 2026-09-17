@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { Alert, ScrollView, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, type Tone } from "@/theme/tokens";
 import { AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, RangeSlider } from "@/components/ui";
-import { demoMaterias, type DemoAsistenciaRango, type DemoEvaluacion, type DemoMateria } from "@/data/demoContent";
+import type { DemoAsistenciaRango, DemoEvaluacion, DemoMateria } from "@/data/demoContent";
 import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
 import { today } from "@/lib/agenda";
-import { calcularPuntosObtenidos, calcularSimulacion, escalaLabel, formatValor, toRow, unidad, type ComponenteFijoSim, type EvaluacionSim } from "@/lib/materias";
-import { rowToDemoEvaluacion, useAgenda } from "@/hooks/useAgenda";
+import { calcularSimulacion, escalaLabel, formatValor, materiaComputadaToRow, resolverPendienteSiCorresponde, unidad, type ComponenteFijoSim, type EvaluacionSim } from "@/lib/materias";
+import { useAgenda } from "@/hooks/useAgenda";
 
 function isoToday() {
   return today().toISOString().slice(0, 10);
@@ -86,6 +86,7 @@ function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: st
 export default function MateriaDetalleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [supaMateria, setSupaMateria] = useState<Materia | null>(null);
+  const [cargando, setCargando] = useState(true);
   const [simuladorAbierto, setSimuladorAbierto] = useState(false);
   const [valoresSimulados, setValoresSimulados] = useState<Record<string, number>>({});
   const [rangoAsistencia, setRangoAsistencia] = useState<RangoAsistencia>("semana");
@@ -95,46 +96,54 @@ export default function MateriaDetalleScreen() {
   const [crearItemTipo, setCrearItemTipo] = useState<"evaluacion" | "tarea" | null>(null);
   const [crearItemTitulo, setCrearItemTitulo] = useState("");
 
+  const fetchMateria = useCallback(async () => {
+    if (!id) return;
+    const { data } = await supabase.from("materias").select("*").eq("id", id).maybeSingle();
+    setSupaMateria(data ?? null);
+    setCargando(false);
+  }, [id]);
+
   // Refetch al enfocar (no sólo al montar) para que la edición hecha en
-  // app/materia/form.tsx se refleje acá al volver, desde la respuesta real.
+  // app/materia/form.tsx (o el auto-pasaje a "aprobada" de
+  // resolverPendienteSiCorresponde, ver guardarNotas) se refleje acá al
+  // volver, desde la respuesta real.
   useFocusEffect(
     useCallback(() => {
-      if (!id) return;
-      supabase
-        .from("materias")
-        .select("*")
-        .eq("id", id)
-        .maybeSingle()
-        .then(({ data }) => setSupaMateria(data ?? null));
-    }, [id])
+      setCargando(true);
+      fetchMateria();
+    }, [fetchMateria])
   );
 
-  const materia = useMemo<DemoMateria>(() => {
-    if (supaMateria) return toRow(supaMateria);
-    return demoMaterias.find((m) => m.id === id) ?? demoMaterias[0];
-  }, [supaMateria, id]);
-
   // "Evaluaciones y tareas" lee/escribe la misma tabla real `agenda` que
-  // Agenda (ver src/hooks/useAgenda.ts), acotada a esta materia. Si el
-  // usuario todavía no tiene ninguna fila para esta materia, se muestra la
-  // de muestra en su lugar (mismo criterio que Materias) — estado local
-  // editable sólo para ese caso demo.
-  const agenda = useAgenda(materia.id);
-  const usandoDemoEvals = !agenda.hasRows;
-  const [demoEvaluaciones, setDemoEvaluaciones] = useState<DemoEvaluacion[]>(materia.evaluaciones);
+  // Agenda (ver src/hooks/useAgenda.ts), acotada a esta materia — sin
+  // fallback a datos de muestra: una materia real sin evaluaciones
+  // cargadas todavía se ve vacía, no con notas de otra materia.
+  const agenda = useAgenda(id);
 
   // Se resetea si cambia de materia.
   useEffect(() => {
-    setDemoEvaluaciones(materia.evaluaciones);
     setValoresSimulados({});
     setSimuladorAbierto(false);
-  }, [materia]);
+  }, [id]);
 
-  const evaluaciones = useMemo<DemoEvaluacion[]>(
-    () => (usandoDemoEvals ? demoEvaluaciones : (agenda.rows ?? []).map((r) => rowToDemoEvaluacion(r, materia.escalaTotal))),
-    [usandoDemoEvals, demoEvaluaciones, agenda.rows, materia.escalaTotal]
-  );
+  // Réplica de computeMateriaById (runtime.js): esc/tone/promedio ya
+  // calculados con paridad exacta a la web (ver materiaComputadaToRow en
+  // lib/materias.ts) — el viejo `toRow()` + demoMaterias.find(...) como
+  // fallback quedó eliminado, tapaba tanto la falta de cálculo real como
+  // una materia inexistente/todavía-cargando con datos de muestra.
+  const materia = useMemo<DemoMateria | null>(() => (supaMateria ? materiaComputadaToRow(supaMateria, agenda.rows ?? []) : null), [supaMateria, agenda.rows]);
 
+  if (!materia) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md }}>
+          {cargando ? <ActivityIndicator color={colors.textTertiary} /> : <AppText style={{ fontSize: 14, color: colors.textTertiary }}>No se encontró la materia.</AppText>}
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const evaluaciones = materia.evaluaciones;
   const accent = materiaColors[materia.colorId];
 
   const evaluacionesSim: EvaluacionSim[] = evaluaciones.map((e) => ({
@@ -145,18 +154,13 @@ export default function MateriaDetalleScreen() {
   const componentesFijosSim: ComponenteFijoSim[] = materia.componentesFijos.map((c) => ({ id: c.id, puntajeMax: c.puntajeMax, valor: c.valor }));
   const sim = calcularSimulacion({ total: materia.escalaTotal, aprob: materia.escalaAprob, exoneracion: materia.escalaExon ?? null }, evaluacionesSim, valoresSimulados, componentesFijosSim);
 
-  // Anillo de "Calificación y aprobación": mismo cálculo que Materias (ver
-  // calcularPuntosObtenidos en lib/materias.ts) — puntos ya cargados sobre
-  // esc.total, no una proyección con los sliders del simulador de abajo.
-  const { puntos: puntosObtenidos, hayPuntos: hayPuntosCargados, tone: ringTone } = calcularPuntosObtenidos(
-    { aprob: materia.escalaAprob, exoneracion: materia.escalaExon ?? null },
-    evaluaciones.map((e) => ({ hecho: e.estado === "aprobada", nota: e.nota ?? null })),
-    materia.componentesFijos
-  );
-  const t = tone[ringTone];
-  const notaTxt = hayPuntosCargados ? formatValor(puntosObtenidos, materia.escalaTipo) : "—";
-  const pct = materia.escalaTotal > 0 ? Math.max(0, Math.min(1, puntosObtenidos / materia.escalaTotal)) : 0;
-  const callout = calloutDe({ ...materia, promedio: puntosObtenidos, tone: ringTone, evaluaciones });
+  // Anillo de "Calificación y aprobación": mismo promedio/tone que
+  // Materias (ver computeMateria en lib/materias.ts), ya calculados en
+  // `materia` — no una proyección con los sliders del simulador de abajo.
+  const t = tone[materia.tone];
+  const notaTxt = materia.promedio > 0 ? formatValor(materia.promedio, materia.escalaTipo) : "—";
+  const pct = materia.escalaTotal > 0 ? Math.max(0, Math.min(1, materia.promedio / materia.escalaTotal)) : 0;
+  const callout = calloutDe(materia);
 
   const evaluacionesSinNota = evaluaciones.filter((e) => e.estado === "pendiente");
   const fijosSinValor = materia.componentesFijos.filter((c) => c.valor == null);
@@ -199,20 +203,25 @@ export default function MateriaDetalleScreen() {
       return;
     }
 
-    if (usandoDemoEvals) {
-      setDemoEvaluaciones((prev) =>
-        prev.map((e) => {
-          const cambio = cambios.find((c) => c.id === e.id);
-          return cambio ? { ...e, estado: "aprobada", nota: cambio.n } : e;
-        })
-      );
-      setCargarNotaAbierto(false);
+    const resultados = await Promise.all(cambios.map((c) => agenda.asignarNota(c.id, c.n)));
+    setCargarNotaAbierto(false);
+    if (resultados.some((ok) => !ok)) {
+      avisarError("No se pudieron guardar algunas notas");
       return;
     }
 
-    const resultados = await Promise.all(cambios.map((c) => agenda.asignarNota(c.id, c.n)));
-    setCargarNotaAbierto(false);
-    if (resultados.some((ok) => !ok)) avisarError("No se pudieron guardar algunas notas");
+    // "Debo rendir examen": si la nota recién cargada llega al mínimo fijo
+    // del examen, la materia pasa a "aprobada" sola (ver
+    // resolverPendienteSiCorresponde en lib/materias.ts) — sólo aplica a la
+    // primera nota cambiada, que es el caso real (una materia "pendiente"
+    // normalmente tiene un solo examen por rendir a la vez).
+    if (supaMateria && supaMateria.estado === "pendiente" && cambios[0]) {
+      const resultado = await resolverPendienteSiCorresponde(supaMateria, cambios[0].n);
+      if (resultado) {
+        Alert.alert(resultado.promovida ? "¡Aprobada!" : "Nota cargada", resultado.mensaje);
+        if (resultado.promovida) fetchMateria();
+      }
+    }
   };
 
   const abrirCrearItem = (tipo: "evaluacion" | "tarea") => {
@@ -223,13 +232,6 @@ export default function MateriaDetalleScreen() {
   const confirmarCrearItem = async () => {
     if (!crearItemTipo || !crearItemTitulo.trim()) return;
     const tipo = crearItemTipo === "evaluacion" ? "Parcial" : "Entrega";
-
-    if (usandoDemoEvals) {
-      const nuevo: DemoEvaluacion = { id: `local-${Date.now()}`, nombre: crearItemTitulo.trim(), estado: "pendiente", notaMax: materia.escalaTotal };
-      setDemoEvaluaciones((prev) => [...prev, nuevo]);
-      setCrearItemTipo(null);
-      return;
-    }
 
     const ok = await agenda.crear({
       materiaId: materia.id,
@@ -682,13 +684,9 @@ export default function MateriaDetalleScreen() {
             scaleTo={0.99}
             onPress={() => {
               if (accionItem) {
-                if (usandoDemoEvals) {
-                  setDemoEvaluaciones((prev) => prev.map((e) => (e.id === accionItem.id ? { ...e, estado: "pendiente", nota: undefined } : e)));
-                } else {
-                  agenda.marcarHecho(accionItem.id, false).then((ok) => {
-                    if (!ok) avisarError("No se pudo actualizar");
-                  });
-                }
+                agenda.marcarHecho(accionItem.id, false).then((ok) => {
+                  if (!ok) avisarError("No se pudo actualizar");
+                });
               }
               setAccionItem(null);
             }}

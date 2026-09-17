@@ -1,23 +1,92 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useFocusEffect } from "expo-router";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors, radii, spacing } from "@/theme/tokens";
+import { supabase } from "@/lib/supabase";
+import type { Materia } from "@/types/database";
+import { colors, materiaColors, radii, spacing, type MateriaColorId } from "@/theme/tokens";
 import { AppText, PressableScale } from "@/components/ui";
-import { demoHorarioPorDia, demoHorarioSemana } from "@/data/demoContent";
+import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
+import { getSemestreActivoId } from "@/lib/semestres";
+
+type BloqueDelDia = {
+  id: string;
+  materiaNombre: string;
+  horaInicio: string;
+  horaFin: string;
+  ubicacion: string;
+  accentColor: string;
+  accentSoft: string;
+  ini: number;
+};
+
+const DIAS_SEMANA = DIAS_BLOQUE.map((label, i) => ({ key: label, label, dia: i + 1 }));
+
+function diaDeHoy() {
+  const g = new Date().getDay(); // 0=domingo
+  return g === 0 ? 1 : g; // sin columna de domingo — cae en lunes, como designDia() en runtime.js
+}
 
 export default function HorarioScreen() {
-  const [diaSeleccionado, setDiaSeleccionado] = useState(2); // martes, como en el diseño
+  const [diaSeleccionado, setDiaSeleccionado] = useState(diaDeHoy());
+  const [materias, setMaterias] = useState<Materia[] | null>(null);
 
-  const bloques = demoHorarioPorDia[diaSeleccionado] ?? [];
+  // Acotado al semestre activo — mismo criterio que Materias/Inicio (ver
+  // computeMateriasDelActivo en runtime.js/lib/materias.ts).
+  useFocusEffect(
+    useCallback(() => {
+      let cancelado = false;
+      (async () => {
+        const activeId = await getSemestreActivoId();
+        let query = supabase.from("materias").select("*");
+        if (activeId) query = query.eq("semestre_id", activeId);
+        const { data } = await query;
+        if (!cancelado) setMaterias(data ?? []);
+      })();
+      return () => {
+        cancelado = true;
+      };
+    }, [])
+  );
+
+  // Réplica de formatHorario/ACCENTS (runtime.js) armada por día en vez de
+  // por materia — un bloque por cada entrada de materia.bloques, coloreado
+  // con el mismo acento de identidad que Materias/Detalle.
+  const porDia = useMemo(() => {
+    const map = new Map<number, BloqueDelDia[]>();
+    (materias ?? []).forEach((m) => {
+      const colorId = (m.color_id && m.color_id in materiaColors ? m.color_id : "gris") as MateriaColorId;
+      const accent = materiaColors[colorId];
+      (m.bloques ?? []).forEach((b) => {
+        const arr = map.get(b.dia) ?? [];
+        arr.push({
+          id: `${m.id}-${b.dia}-${b.ini}`,
+          materiaNombre: m.nombre,
+          horaInicio: horaTexto(b.ini),
+          horaFin: horaTexto(b.fin),
+          ubicacion: m.salon || "Sin salón asignado",
+          accentColor: accent.strong,
+          accentSoft: accent.soft,
+          ini: b.ini,
+        });
+        map.set(b.dia, arr);
+      });
+    });
+    map.forEach((arr) => arr.sort((a, b) => a.ini - b.ini));
+    return map;
+  }, [materias]);
+
+  const bloques = porDia.get(diaSeleccionado) ?? [];
   const resumen = useMemo(() => {
+    if (materias === null) return "Cargando…";
     if (bloques.length === 0) return "Sin clases este día";
     const horas = bloques.reduce((acc, b) => {
       const [h1] = b.horaInicio.split(":").map(Number);
       const [h2] = b.horaFin.split(":").map(Number);
-      return acc + (h2 - h1);
+      return acc + ((h2 ?? 0) - (h1 ?? 0));
     }, 0);
-    return `${bloques.length} ${bloques.length === 1 ? "clase" : "clases"} · ${horas} h · primera ${bloques[0].horaInicio}`;
-  }, [bloques]);
+    return `${bloques.length} ${bloques.length === 1 ? "clase" : "clases"} · ${horas} h · primera ${bloques[0]!.horaInicio}`;
+  }, [bloques, materias]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
@@ -26,11 +95,10 @@ export default function HorarioScreen() {
           <AppText weight="700" style={{ fontSize: 29, letterSpacing: -0.6 }}>
             Horario
           </AppText>
-          <AppText style={{ fontSize: 12, color: colors.textTertiary }}>2026 · 2.º semestre</AppText>
         </View>
 
         <View style={{ flexDirection: "row", gap: 7 }}>
-          {demoHorarioSemana.map((d) => {
+          {DIAS_SEMANA.map((d) => {
             const active = d.dia === diaSeleccionado;
             return (
               <PressableScale
@@ -70,7 +138,7 @@ export default function HorarioScreen() {
       <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
         {bloques.length === 0 ? (
           <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>
-            No hay clases cargadas para este día.
+            {materias === null ? "Cargando…" : "No hay clases cargadas para este día."}
           </AppText>
         ) : (
           bloques.map((b, i) => (

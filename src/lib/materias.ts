@@ -1,21 +1,284 @@
-import type { EscalaTipo, Materia } from "@/types/database";
+import type { EscalaMateria, EscalaTipo, EventoAgenda, Materia, Semestre } from "@/types/database";
 import { materiaColors, type MateriaColorId, type Tone } from "@/theme/tokens";
-import { demoMaterias, type DemoMateria } from "@/data/demoContent";
+import type { DemoMateria } from "@/data/demoContent";
 import { formatHorario, nombreDesdePeriodo, PERIODO_ACTUAL } from "@/lib/catalog";
 import { supabase } from "@/lib/supabase";
 import { currentUserId, getSemestreActivoId } from "@/lib/semestres";
+import { diffDias, parseISODate, today } from "@/lib/agenda";
+import { rowToDemoEvaluacion } from "@/hooks/useAgenda";
 
-// Combina lo real de Supabase (nombre/color/escala/bloques/puntos fijos)
-// con las métricas de muestra (progreso/promedio/evaluaciones) hasta que el
-// schema tenga esas columnas. Si el nombre matchea una materia de muestra,
-// la muestra gana (trae más datos) — si no, se arma la fila sólo con lo
-// real disponible. Compartido por Materias y Detalle de materia.
-// TODO(backend): sacar el merge con demoMaterias una vez existan esas columnas.
-export function toRow(materia: Materia): DemoMateria {
-  const match = demoMaterias.find((d) => d.nombre.toLowerCase() === materia.nombre.toLowerCase());
-  if (match) return match;
+// ============================================================
+// Cálculo real (puerto de runtime.js, sección "vistas derivadas de
+// materia" — ver computeMateria/computeMaterias/computeKpis/etc. y la
+// skill cursada-conventions del repo cursada-design-system). Cada función
+// acá abajo anota qué función de runtime.js replica. A diferencia de la
+// web (que lee de un caché en memoria ya cargado, `loadMateriasRaw()`/
+// `loadAgendaRaw()`), acá se reciben los arrays ya fetcheados de Supabase
+// como parámetro — no hay caché global del lado mobile.
+// ============================================================
+
+// Réplica de APROBACION_EXAMEN_PENDIENTE (runtime.js): mínimo fijo del
+// examen de una materia "pendiente" (debe rendir examen) — 70 sobre 100,
+// documentado en el README de cursada-design-system, independiente del
+// esc.aprob de la materia (ver escConAprobacionEfectiva/computeMateria).
+const APROBACION_EXAMEN_PENDIENTE = 70;
+
+// Réplica de MARGEN_RIESGO (runtime.js): margen de riesgo en escala 0-12,
+// escalado al total de la materia por margenDe().
+const MARGEN_RIESGO = 1;
+
+function escalaDe(materia: Pick<Materia, "esc">): EscalaMateria {
+  return "tipo" in materia.esc ? (materia.esc as EscalaMateria) : { tipo: "nota", total: 12, aprob: 6, exoneracion: null };
+}
+
+// Réplica exacta de escConAprobacionEfectiva(esc) (runtime.js): el catálogo
+// ORT carga esc.aprob:0 para el sistema "examen con exoneración" (no hay
+// mínimo propio del curso, sólo el umbral de exoneración) — acá se toma
+// ese umbral como aprobación efectiva para toneDe/notaTxt/"Te faltan..."/
+// el badge, sin tocar el esc.aprob crudo guardado en `materias`.
+export function escConAprobacionEfectiva(esc: EscalaMateria): EscalaMateria {
+  if (!esc || esc.aprob > 0 || esc.exoneracion == null) return esc;
+  return { ...esc, aprob: esc.exoneracion };
+}
+
+// Réplica exacta de margenDe(e) (runtime.js).
+export function margenDe(esc: Pick<EscalaMateria, "total">): number {
+  return (MARGEN_RIESGO / 12) * esc.total;
+}
+
+// Réplica exacta de toneDe(estado, esc, parciales) (runtime.js) — "aprobada"
+// siempre es success sin importar las notas; sin ninguna nota cargada es
+// neutral; si no, promedio simple de `parciales` contra esc.aprob/margenDe.
+export function toneDe(estado: Materia["estado"], esc: Pick<EscalaMateria, "aprob" | "total">, parciales: number[]): Tone {
+  if (estado === "aprobada") return "success";
+  if (!parciales.length) return "neutral";
+  const a = parciales.reduce((x, y) => x + y, 0) / parciales.length;
+  if (a < esc.aprob) return "danger";
+  if (a < esc.aprob + margenDe(esc)) return "warning";
+  return "success";
+}
+
+export type MateriaComputada = {
+  raw: Materia;
+  esc: EscalaMateria; // ya con escConAprobacionEfectiva + la salvedad de "pendiente" aplicadas
+  actual: number | null;
+  tone: Tone;
+  necesita: number | null;
+  riesgoTxt: string;
+  items: EventoAgenda[]; // evaluaciones + tareas, ordenadas por fecha/hora
+  evaluaciones: EventoAgenda[]; // sólo kind:'evaluacion'
+  notasEvals: EventoAgenda[]; // evaluaciones ya calificadas
+  parciales: number[];
+};
+
+// Réplica exacta de computeMateria(m, agendaAll) (runtime.js). Ojo: el
+// promedio (`actual`) es un PROMEDIO SIMPLE de las notas ya cargadas +
+// componentes fijos con valor — no pondera por nota_maxima de cada una
+// (eso es un modelo aparte, exclusivo del simulador de escenarios, ver
+// calcularSimulacion más abajo). Funciona porque, salvo que el usuario
+// edite `nota_maxima` a mano, cada evaluación nueva hereda esc.total como
+// su propio máximo (mismo criterio que notaMaximaDefault en runtime.js).
+export function computeMateria(materia: Materia, agendaAll: EventoAgenda[]): MateriaComputada {
+  const items = agendaAll
+    .filter((a) => a.materia_id === materia.id)
+    .sort((a, b) => parseISODate(a.fecha).getTime() - parseISODate(b.fecha).getTime() || (a.hora ?? "").localeCompare(b.hora ?? ""));
+  const evaluaciones = items.filter((a) => a.kind === "evaluacion");
+  const notasEvals = evaluaciones.filter((a) => a.nota != null);
+  const componentesFijos = materia.componentes_fijos ?? [];
+  const parciales = notasEvals
+    .map((a) => a.nota as number)
+    .concat(componentesFijos.filter((c) => c.valor != null).map((c) => c.valor as number));
+
+  let esc = escConAprobacionEfectiva(escalaDe(materia));
+  // "Debo rendir examen": llegar a este estado ya significa que se superó
+  // el mínimo/exoneración de la cursada — de acá en adelante todo
+  // (tone/notaTxt/"Te faltan"/riesgoTxt) tiene que ver el mínimo fijo del
+  // examen, no el de la materia, y la exoneración deja de aplicar.
+  if (materia.estado === "pendiente") esc = { ...esc, aprob: APROBACION_EXAMEN_PENDIENTE, exoneracion: null };
+
+  const actual = parciales.length ? parciales.reduce((a, b) => a + b, 0) / parciales.length : null;
+  const tone = toneDe(materia.estado, esc, parciales);
+  const necesita = actual == null ? null : Math.max(0, esc.aprob - actual);
+
+  let riesgoTxt = "";
+  if (tone === "danger" && actual != null) {
+    riesgoTxt = `Tu promedio es ${formatValor(actual, esc.tipo)}${unidad(esc.tipo)}, te faltan ${formatValor(necesita ?? 0, esc.tipo)}${unidad(esc.tipo)} para llegar a la aprobación (${formatValor(esc.aprob, esc.tipo)}${unidad(esc.tipo)}).`;
+  } else if (tone === "warning" && actual != null) {
+    riesgoTxt = `Vas aprobando, pero raspando: tu promedio es ${formatValor(actual, esc.tipo)}${unidad(esc.tipo)} y el mínimo es ${formatValor(esc.aprob, esc.tipo)}${unidad(esc.tipo)}.`;
+  }
+
+  return { raw: materia, esc, actual, tone, necesita, riesgoTxt, items, evaluaciones, notasEvals, parciales };
+}
+
+// Réplica de computeMaterias(opts)/computeMateriasDelActivo() (runtime.js):
+// sin semestreId (null/undefined), todas las materias — mismo criterio que
+// la web ("sin opts.semestreId" en computeMaterias, no sólo un semestreId
+// falsy: activeSemestreId() puede devolver null si el usuario no tiene
+// ningún semestre todavía, y en ese caso la web tampoco filtra).
+export function computeMaterias(materiasAll: Materia[], agendaAll: EventoAgenda[], semestreId?: string | null): MateriaComputada[] {
+  const raw = semestreId ? materiasAll.filter((m) => m.semestre_id === semestreId) : materiasAll;
+  return raw.map((m) => computeMateria(m, agendaAll));
+}
+
+// Réplica exacta de promedioNormalizado(materias) (runtime.js).
+export function promedioNormalizado(materias: MateriaComputada[]): number | null {
+  const proms = materias.filter((m) => m.actual != null).map((m) => ((m.actual as number) / m.esc.total) * 100);
+  return proms.length ? Math.round(proms.reduce((a, b) => a + b, 0) / proms.length) : null;
+}
+
+// Réplica exacta de materiasAprobadasCount() (runtime.js): TODOS los
+// semestres, no sólo el activo (a propósito, ver README de la web).
+export function materiasAprobadasCount(materiasAll: Materia[]): number {
+  return materiasAll.filter((m) => m.estado === "aprobada").length;
+}
+
+// Réplica exacta de agendaDeSemestre(semestreId) (runtime.js).
+export function agendaDeSemestre(agendaAll: EventoAgenda[], materiasAll: Materia[], semestreId: string | null): EventoAgenda[] {
+  if (!semestreId) return agendaAll;
+  const ids = new Set(materiasAll.filter((m) => m.semestre_id === semestreId).map((m) => m.id));
+  return agendaAll.filter((a) => a.materia_id != null && ids.has(a.materia_id));
+}
+
+export type KpisComputados = {
+  proximaEvaluacion: { valor: string; sub: string } | null;
+  promedioGeneral: { valor: string; sub: string; empty: false } | { empty: true; ctaTexto: string };
+  pendientesSemana: { valor: string; sub: string; tone: Tone };
+};
+
+const DIAS_CORTOS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+
+// Réplica de computeKpis() (runtime.js) — mismas 3 tarjetas/mismos
+// criterios ("Próxima evaluación" se oculta si no hay nada pendiente,
+// "Promedio general" cae a estado vacío con CTA en vez de ocultarse,
+// "Pendientes esta semana" nunca se oculta). Se devuelve un objeto de
+// slots fijos en vez del array de la web (ahí el orden definía qué tarjeta
+// era "la primera" porque podía faltar; acá cada pantalla
+// ya sabe qué tarjeta es cada una) — misma semántica, forma más cómoda
+// para consumir desde React.
+export function computeKpis(materiasAll: Materia[], agendaAll: EventoAgenda[], semestreId: string | null): KpisComputados {
+  const materias = computeMaterias(materiasAll, agendaAll, semestreId);
+  const t = today();
+  const agenda = agendaDeSemestre(agendaAll, materiasAll, semestreId);
+  const pendientes = agenda.filter((a) => !a.hecho);
+  const proxExamen = pendientes
+    .filter((a) => a.kind === "evaluacion")
+    .map((a) => ({ a, d: parseISODate(a.fecha) }))
+    .filter((x) => x.d >= t)
+    .sort((x, y) => x.d.getTime() - y.d.getTime())[0];
+  const promedio = promedioNormalizado(materias);
+  const estaSemana = pendientes.filter((a) => {
+    const d = diffDias(parseISODate(a.fecha), t);
+    return d >= 0 && d <= 6;
+  });
+  const vencidas = pendientes.filter((a) => parseISODate(a.fecha) < t);
+  const materiaNombre = (id: string | null) => materiasAll.find((m) => m.id === id)?.nombre ?? "";
+
+  return {
+    proximaEvaluacion: proxExamen
+      ? { valor: `${DIAS_CORTOS[proxExamen.d.getDay()]} ${proxExamen.d.getDate()}`, sub: `${proxExamen.a.tipo} · ${materiaNombre(proxExamen.a.materia_id)}` }
+      : null,
+    promedioGeneral: promedio != null ? { valor: `${promedio}%`, sub: "normalizado · 3 escalas distintas", empty: false } : { empty: true, ctaTexto: "Cargá tu primera nota" },
+    pendientesSemana: {
+      valor: String(estaSemana.length),
+      sub: vencidas.length ? `${vencidas.length} ${vencidas.length === 1 ? "vencida de antes" : "vencidas de antes"}` : "sin vencidas",
+      tone: vencidas.length ? "danger" : "neutral",
+    },
+  };
+}
+
+export type ProgresoSemestrePunto = { semestre: Semestre; promedio: number | null; aprobadas: number; exoneradas: number; total: number };
+
+// Réplica exacta de computeProgresoPorSemestre() (runtime.js): un punto por
+// semestre con al menos una materia (no sólo los que ya tienen promedio).
+export function computeProgresoPorSemestre(semestresOrd: Semestre[], materiasAll: Materia[], agendaAll: EventoAgenda[]): ProgresoSemestrePunto[] {
+  return semestresOrd
+    .map((s) => {
+      const materias = computeMaterias(materiasAll, agendaAll, s.id);
+      return {
+        semestre: s,
+        promedio: promedioNormalizado(materias),
+        aprobadas: materias.filter((m) => m.raw.estado === "aprobada").length,
+        exoneradas: materias.filter((m) => m.actual != null && m.esc.exoneracion != null && (m.actual as number) >= m.esc.exoneracion).length,
+        total: materias.length,
+      };
+    })
+    .filter((p) => p.total > 0);
+}
+
+export type ProgresoSemestreActivo = {
+  promedio: number | null;
+  deltaVsAnterior: number | null;
+  nombreAnterior: string | null;
+  evaluacionesEsperadas: number;
+  evaluacionesCalificadas: number;
+  materias: MateriaComputada[]; // ordenadas peor-encaminada primero, igual que la web
+};
+
+// Réplica de computeProgresoSemestreActivo() (runtime.js) — la tarjeta
+// "Progreso del semestre" de Inicio en la web (progreso-semestre-card,
+// también renderizada desde renderInicio()) es la que le corresponde al
+// widget "Progreso del semestre" que ya existe en Inicio de mobile
+// (delta + anillo de evaluaciones calificadas + desglose por materia), no
+// computeProgresoPorSemestre (esa alimenta un widget de meta de carrera
+// que mobile todavía no tiene en Inicio).
+export function computeProgresoSemestreActivo(materiasAll: Materia[], agendaAll: EventoAgenda[], semestresOrd: Semestre[], activeId: string | null): ProgresoSemestreActivo {
+  const materias = computeMaterias(materiasAll, agendaAll, activeId);
+  const promedio = promedioNormalizado(materias);
+  const evaluacionesDelSemestre = agendaDeSemestre(agendaAll, materiasAll, activeId).filter((a) => a.kind === "evaluacion");
+  const evaluacionesEsperadas = evaluacionesDelSemestre.length;
+  const evaluacionesCalificadas = evaluacionesDelSemestre.filter((a) => a.nota != null).length;
+
+  const idxActivo = semestresOrd.findIndex((s) => s.id === activeId);
+  const anterior = idxActivo > 0 ? semestresOrd[idxActivo - 1] : null;
+  let deltaVsAnterior: number | null = null;
+  let nombreAnterior: string | null = null;
+  if (anterior) {
+    const promedioAnterior = promedioNormalizado(computeMaterias(materiasAll, agendaAll, anterior.id));
+    if (promedio != null && promedioAnterior != null) {
+      deltaVsAnterior = promedio - promedioAnterior;
+      nombreAnterior = anterior.nombre;
+    }
+  }
+
+  const desglose = materias.slice().sort((a, b) => {
+    const pa = a.actual == null ? 2 : a.actual / a.esc.total;
+    const pb = b.actual == null ? 2 : b.actual / b.esc.total;
+    return pa - pb;
+  });
+
+  return { promedio, deltaVsAnterior, nombreAnterior, evaluacionesEsperadas, evaluacionesCalificadas, materias: desglose };
+}
+
+// Réplica de resolverPendienteSiCorresponde(materiaId, nota) (runtime.js):
+// se llama después de cargar la nota del examen de una materia "pendiente"
+// (debo rendir examen) — si llega al mínimo fijo (APROBACION_EXAMEN_PENDIENTE),
+// la pasa a "aprobada" sola; si no, se queda pendiente para volver a rendir.
+// No hace nada si la materia no está pendiente. A diferencia de la web
+// (que resuelve el mínimo vía computeMateriaById), acá se compara
+// directamente contra la constante: para una materia "pendiente" ese
+// mínimo siempre es el fijo, nunca el esc.aprob propio (ver computeMateria).
+export async function resolverPendienteSiCorresponde(materia: Materia, nota: number): Promise<{ promovida: boolean; mensaje: string } | null> {
+  if (materia.estado !== "pendiente") return null;
+  if (nota >= APROBACION_EXAMEN_PENDIENTE) {
+    const { error } = await supabase.from("materias").update({ estado: "aprobada" }).eq("id", materia.id);
+    if (error) throw error;
+    return { promovida: true, mensaje: `¡Aprobaste ${materia.nombre}! La marcamos como aprobada.` };
+  }
+  return { promovida: false, mensaje: `Nota cargada — no llegaste al mínimo, ${materia.nombre} sigue pendiente de rendir.` };
+}
+
+// Arma la fila que consumen las pantallas (mismo shape que DemoMateria,
+// para no tener que reescribir MateriaCard/MateriaTableRow/EvalRow/
+// calloutDe) a partir de datos 100% reales — reemplaza al viejo toRow(),
+// que tapaba la falta de cálculo real mergeando por NOMBRE contra
+// demoMaterias (podía mostrar la data de otra materia si el nombre
+// matcheaba de casualidad). `codigo`/`creditos`/`asistencia` quedan en su
+// default vacío: esas columnas no existen todavía en el schema real (ver
+// README de la tarea) y no son parte de este cálculo.
+export function materiaComputadaToRow(materia: Materia, agendaAll: EventoAgenda[]): DemoMateria {
+  const computed = computeMateria(materia, agendaAll);
   const colorId = (materia.color_id && materia.color_id in materiaColors ? materia.color_id : "gris") as MateriaColorId;
-  const esc = "tipo" in materia.esc ? materia.esc : null;
+  const esc = computed.esc;
   return {
     id: materia.id,
     nombre: materia.nombre,
@@ -25,21 +288,21 @@ export function toRow(materia: Materia): DemoMateria {
     color: materiaColors[colorId].strong,
     docente: materia.doc || "Sin docente cargado",
     estado: materia.estado,
-    tone: "neutral",
+    tone: computed.tone,
     salon: materia.salon || "Sin salón asignado",
     periodoLabel: nombreDesdePeriodo(PERIODO_ACTUAL),
-    escalaTipo: esc?.tipo ?? "nota",
-    escalaTotal: esc?.total ?? 12,
-    escalaAprob: esc?.aprob ?? 6,
-    escalaExon: esc?.exoneracion ?? undefined,
-    progreso: 0,
-    promedio: 0,
+    escalaTipo: esc.tipo,
+    escalaTotal: esc.total,
+    escalaAprob: esc.aprob,
+    escalaExon: esc.exoneracion ?? undefined,
+    progreso: computed.actual != null ? Math.max(0, Math.min(1, computed.actual / esc.total)) : 0,
+    promedio: computed.actual ?? 0,
     horarioResumen: formatHorario(materia.bloques),
     ubicacionResumen: materia.salon || "Sin salón asignado",
     bloques: materia.bloques ?? [],
     componentesFijos: (materia.componentes_fijos ?? []).map((c) => ({ id: c.id, titulo: c.titulo, puntajeMax: c.puntajeMax, valor: c.valor })),
     asistencia: null,
-    evaluaciones: [],
+    evaluaciones: computed.items.map((r) => rowToDemoEvaluacion(r, esc.total)),
   };
 }
 
@@ -246,22 +509,3 @@ export function formatValor(v: number, tipo: EscalaTipo): string {
   return tipo === "nota" ? v.toFixed(1) : String(Math.round(v));
 }
 
-// Puntos YA cargados de una materia = suma de notas de evaluaciones
-// rendidas (agenda.hecho + agenda.nota) + componentes fijos con valor —
-// mismo cálculo que puntosReales de calcularSimulacion (sin los sliders),
-// factorizado acá porque lo usan Materias (todas las materias de una) y
-// Detalle de materia (una sola, con más detalle). esc.total nunca se
-// recalcula sumando notaMax a mano, se usa tal cual viene de Supabase.
-// Corte de color en esc.aprob/esc.exoneracion, no en un margen.
-export function calcularPuntosObtenidos(
-  esc: { aprob: number; exoneracion?: number | null },
-  agendaItems: { hecho: boolean; nota: number | null | undefined }[],
-  componentesFijos: { valor: number | null }[]
-): { puntos: number; hayPuntos: boolean; tone: Tone } {
-  const notaSum = agendaItems.filter((a) => a.hecho && a.nota != null).reduce((s, a) => s + (a.nota ?? 0), 0);
-  const fijosSum = componentesFijos.filter((c) => c.valor != null).reduce((s, c) => s + (c.valor ?? 0), 0);
-  const puntos = notaSum + fijosSum;
-  const hayPuntos = agendaItems.some((a) => a.hecho && a.nota != null) || componentesFijos.some((c) => c.valor != null);
-  const tone: Tone = !hayPuntos ? "neutral" : puntos < esc.aprob ? "danger" : esc.exoneracion != null && puntos < esc.exoneracion ? "warning" : "success";
-  return { puntos, hayPuntos, tone };
-}
