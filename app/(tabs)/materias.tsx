@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { router } from "expo-router";
-import { Alert, FlatList, TextInput, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { FlatList, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
@@ -204,13 +204,18 @@ export default function MateriasScreen() {
   const [filtro, setFiltro] = useState<FiltroEstado>("todas");
   const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    // TODO: filtrar por el semestre activo (ver pantalla Semestre activo)
-    supabase
-      .from("materias")
-      .select("*")
-      .then(({ data }) => setMaterias(data ?? []));
-  }, []);
+  // Refetch al enfocar la pantalla (no sólo al montar) para que el alta/
+  // edición/borrado de Materia (ver app/materia/form.tsx) se refleje acá al
+  // volver, sin agregar el objeto local a mano.
+  useFocusEffect(
+    useCallback(() => {
+      // TODO: filtrar por el semestre activo (ver pantalla Semestre activo)
+      supabase
+        .from("materias")
+        .select("*")
+        .then(({ data }) => setMaterias(data ?? []));
+    }, [])
+  );
 
   // Agenda/Calendario/Progreso muestran histórico completo a propósito
   // (ver skill cursada-conventions), así que sin filtrar por materia acá:
@@ -263,7 +268,7 @@ export default function MateriasScreen() {
     return out;
   }, [rows, filtro, query]);
 
-  const onNuevaMateria = () => Alert.alert("Nueva materia", "El alta de materias llega en la próxima iteración.");
+  const onNuevaMateria = () => router.push("/materia/nueva");
   const onAbrirMateria = (id: string) => router.push(`/materia/${id}`);
 
   return (

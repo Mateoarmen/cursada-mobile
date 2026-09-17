@@ -70,6 +70,8 @@ function RootLayoutNav({ hasSession, fontsAndSessionReady }: { hasSession: boole
         <Stack.Screen name="reset-password" options={{ animation: "fade" }} />
         <Stack.Screen name="onboarding" options={{ animation: "fade" }} />
         <Stack.Screen name="materia/[id]" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="materia/form" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="materia/nueva" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="perfil" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="semestre-activo" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="asistencia" options={{ animation: "slide_from_right" }} />

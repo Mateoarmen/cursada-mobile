@@ -6,10 +6,20 @@
 import { supabase } from "@/lib/supabase";
 import { nombreDesdePeriodo } from "@/lib/catalog";
 
-async function currentUserId(): Promise<string> {
+export async function currentUserId(): Promise<string> {
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) throw error ?? new Error("No hay sesión.");
   return data.user.id;
+}
+
+// Mismo criterio que la pantalla Semestre activo (a lo sumo un `activo`
+// por usuario) — usado por el alta de Materia para saber a qué semestre
+// asignar la materia nueva.
+export async function getSemestreActivoId(): Promise<string | null> {
+  const userId = await currentUserId();
+  const { data, error } = await supabase.from("semestres").select("id").eq("user_id", userId).eq("activo", true).maybeSingle();
+  if (error) throw error;
+  return (data?.id as string) ?? null;
 }
 
 async function desactivarTodos(userId: string) {

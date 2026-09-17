@@ -2,6 +2,8 @@ import type { EscalaTipo, Materia } from "@/types/database";
 import { materiaColors, type MateriaColorId, type Tone } from "@/theme/tokens";
 import { demoMaterias, type DemoMateria } from "@/data/demoContent";
 import { formatHorario, nombreDesdePeriodo, PERIODO_ACTUAL } from "@/lib/catalog";
+import { supabase } from "@/lib/supabase";
+import { currentUserId, getSemestreActivoId } from "@/lib/semestres";
 
 // Combina lo real de Supabase (nombre/color/escala/bloques/puntos fijos)
 // con las métricas de muestra (progreso/promedio/evaluaciones) hasta que el
@@ -146,6 +148,88 @@ export function calcularSimulacion(
 // que reciben el objeto esc completo por el mismo motivo). Vive acá (en vez
 // de duplicarse por pantalla) porque Detalle de materia y Materias la usan
 // ambas.
+// Alta/edición de Materia — mismo mapeo camelCase/snake_case que
+// materiaToRow/rowToMateria de la web (ver runtime.js). `catalogo_materia_id`
+// y `catalogo_dictado_id` son sólo lectura acá: nunca se mandan en el
+// insert/update, las escriben las RPCs del catálogo de onboarding.
+export type MateriaBloqueInput = { dia: number; ini: number; fin: number };
+export type MateriaEscInput = { tipo: EscalaTipo; total: number; aprob: number; exoneracion?: number };
+export type MateriaFormInput = {
+  nombre: string;
+  doc: string;
+  colorId: MateriaColorId;
+  salon: string;
+  estado: Materia["estado"];
+  bloques: MateriaBloqueInput[];
+  esc: MateriaEscInput;
+};
+
+function escParaGuardar(esc: MateriaEscInput) {
+  // No mandar `exoneracion: null` de más — el simulador chequea
+  // `esc.exoneracion != null` (ver calcularSimulacion arriba), así que
+  // omitir la clave entera cuando el usuario no la cargó.
+  const base: { tipo: EscalaTipo; total: number; aprob: number; exoneracion?: number } = {
+    tipo: esc.tipo,
+    total: esc.total,
+    aprob: esc.aprob,
+  };
+  if (esc.exoneracion != null) base.exoneracion = esc.exoneracion;
+  return base;
+}
+
+export async function crearMateria(input: MateriaFormInput): Promise<Materia> {
+  const userId = await currentUserId();
+  const semestreId = await getSemestreActivoId();
+  const { data, error } = await supabase
+    .from("materias")
+    .insert({
+      user_id: userId,
+      semestre_id: semestreId,
+      nombre: input.nombre,
+      doc: input.doc || null,
+      color_id: input.colorId,
+      salon: input.salon || null,
+      bloques: input.bloques,
+      esc: escParaGuardar(input.esc),
+      estado: input.estado,
+      componentes_fijos: [],
+    })
+    .select()
+    .single();
+  if (error || !data) throw error ?? new Error("No se pudo crear la materia.");
+  return data as Materia;
+}
+
+export async function actualizarMateria(id: string, input: MateriaFormInput): Promise<Materia> {
+  const { data, error } = await supabase
+    .from("materias")
+    .update({
+      nombre: input.nombre,
+      doc: input.doc || null,
+      color_id: input.colorId,
+      salon: input.salon || null,
+      bloques: input.bloques,
+      esc: escParaGuardar(input.esc),
+      estado: input.estado,
+    })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error || !data) throw error ?? new Error("No se pudo actualizar la materia.");
+  return data as Materia;
+}
+
+// Borra primero las filas de `agenda` que apuntan a esta materia y recién
+// después la materia — no asume que exista ON DELETE CASCADE en
+// agenda.materia_id, así que el orden manual es correcto tanto si el
+// cascade existe (el segundo delete no encuentra nada) como si no.
+export async function eliminarMateria(id: string): Promise<void> {
+  const { error: agendaErr } = await supabase.from("agenda").delete().eq("materia_id", id);
+  if (agendaErr) throw agendaErr;
+  const { error } = await supabase.from("materias").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export function escalaLabel(tipo: EscalaTipo, total: number): string {
   if (tipo === "nota") return "Nota 0–12";
   if (tipo === "pct") return "Porcentaje";

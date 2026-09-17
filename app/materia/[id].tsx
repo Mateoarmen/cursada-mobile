@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Alert, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -95,15 +95,19 @@ export default function MateriaDetalleScreen() {
   const [crearItemTipo, setCrearItemTipo] = useState<"evaluacion" | "tarea" | null>(null);
   const [crearItemTitulo, setCrearItemTitulo] = useState("");
 
-  useEffect(() => {
-    if (!id) return;
-    supabase
-      .from("materias")
-      .select("*")
-      .eq("id", id)
-      .maybeSingle()
-      .then(({ data }) => setSupaMateria(data ?? null));
-  }, [id]);
+  // Refetch al enfocar (no sólo al montar) para que la edición hecha en
+  // app/materia/form.tsx se refleje acá al volver, desde la respuesta real.
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return;
+      supabase
+        .from("materias")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle()
+        .then(({ data }) => setSupaMateria(data ?? null));
+    }, [id])
+  );
 
   const materia = useMemo<DemoMateria>(() => {
     if (supaMateria) return toRow(supaMateria);
@@ -283,7 +287,7 @@ export default function MateriaDetalleScreen() {
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
-          <PressableScale scaleTo={0.97} onPress={() => stub("Editar materia")}>
+          <PressableScale scaleTo={0.97} onPress={() => (supaMateria ? router.push(`/materia/form?id=${supaMateria.id}`) : stub("Editar materia"))}>
             <Pill label="Editar materia" background={colors.surfaceSoft} style={{ height: 34, paddingHorizontal: 14 }} />
           </PressableScale>
           <PressableScale scaleTo={0.97} onPress={() => abrirCrearItem("tarea")}>
