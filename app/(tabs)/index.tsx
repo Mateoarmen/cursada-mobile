@@ -6,13 +6,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSession } from "@/hooks/useSession";
 import { supabase } from "@/lib/supabase";
-import type { Materia, Semestre } from "@/types/database";
-import { colors, materiaColors, radii, spacing, type Tone } from "@/theme/tokens";
+import type { Materia, Personal, Semestre } from "@/types/database";
+import { colors, materiaColors, radii, spacing, tone, type MateriaColorId, type Tone } from "@/theme/tokens";
 import { AppText, Avatar, Pill, PressableScale, PrimaryButton, ProgressRing } from "@/components/ui";
-import { demoHome } from "@/data/demoContent";
-import { computeKpis, computeMaterias, computeProgresoSemestreActivo, formatValor } from "@/lib/materias";
+import { computeKpis, computeMateria, computeMaterias, computeProgresoSemestreActivo, formatValor, unidad } from "@/lib/materias";
 import { getSemestreActivoId, semestresOrdenados } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
+import { agendaBadgeInfo, PERSONAL_COLOR, today as agendaToday } from "@/lib/agenda";
+import { computeProximos, type ProximoItem } from "@/lib/proximos";
 
 const hoy = new Date();
 const fechaLabel = hoy
@@ -39,15 +40,25 @@ export default function InicioScreen() {
   const [materiasAll, setMateriasAll] = useState<Materia[] | null>(null);
   const [semestres, setSemestres] = useState<Semestre[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Fetch de sólo-lectura de `personal` — sólo para que "Lo próximo"/
+  // "Próximos días" no mezclen ítems reales con demoHome; crear/editar
+  // eventos personales es una pantalla aparte, fuera de alcance acá.
+  const [personalAll, setPersonalAll] = useState<Personal[] | null>(null);
   const agenda = useAgenda();
 
   useFocusEffect(
     useCallback(() => {
       let cancelado = false;
       (async () => {
-        const [{ data: materias }, sems, id] = await Promise.all([supabase.from("materias").select("*"), semestresOrdenados(), getSemestreActivoId()]);
+        const [{ data: materias }, { data: personal }, sems, id] = await Promise.all([
+          supabase.from("materias").select("*"),
+          supabase.from("personal").select("*"),
+          semestresOrdenados(),
+          getSemestreActivoId(),
+        ]);
         if (cancelado) return;
         setMateriasAll(materias ?? []);
+        setPersonalAll(personal ?? []);
         setSemestres(sems);
         setActiveId(id);
       })();
@@ -72,6 +83,56 @@ export default function InicioScreen() {
     [materiasAll, agenda.rows, semestres, activeId]
   );
 
+  // "Lo próximo"/"Próximos días" — réplica de proximosEnRango()/
+  // renderInicioHero() (runtime.js), ver src/lib/proximos.ts.
+  const t7 = useMemo(() => agendaToday(), []);
+  const proximos = useMemo(
+    () => (materiasAll && agenda.rows && personalAll ? computeProximos(agenda.rows, materiasAll, personalAll, activeId, t7) : null),
+    [materiasAll, agenda.rows, personalAll, activeId, t7]
+  );
+  const heroItem = proximos?.items[0] ?? null;
+  const heroMateriaRaw = heroItem?.tipo === "materia" ? materiasAll?.find((m) => m.id === heroItem.item.materia_id) ?? null : null;
+  const heroMateria = useMemo(
+    () => (heroMateriaRaw && agenda.rows ? computeMateria(heroMateriaRaw, agenda.rows) : null),
+    [heroMateriaRaw, agenda.rows]
+  );
+  const heroBadge =
+    heroItem?.tipo === "materia" ? agendaBadgeInfo({ hecho: heroItem.item.hecho, itemKind: heroItem.item.kind, nota: heroItem.item.nota, fecha: heroItem.item.fecha }, t7) : null;
+  const heroMeta =
+    heroItem?.tipo === "materia"
+      ? `${heroMateriaRaw ? heroMateriaRaw.nombre + " · " : ""}${heroItem.item.hora ? heroItem.item.hora + " · " : ""}${heroItem.item.tipo}`
+      : heroItem?.tipo === "personal"
+        ? heroItem.item.todo_el_dia
+          ? "Todo el día"
+          : heroItem.item.hora || ""
+        : "";
+
+  // Filas de "Próximos días" — mismo color de identidad (materia fuerte o
+  // PERSONAL_COLOR) y meta que usa el hero de arriba, ver renderInicio()/
+  // proximos-list en runtime.js.
+  const proximosDiasRows = useMemo(
+    () =>
+      (proximos?.items ?? []).map((p: ProximoItem) => {
+        if (p.tipo === "materia") {
+          const m = materiasAll?.find((mm) => mm.id === p.item.materia_id) ?? null;
+          const colorId = m?.color_id && m.color_id in materiaColors ? (m.color_id as MateriaColorId) : "gris";
+          return {
+            id: p.item.id,
+            titulo: p.item.titulo,
+            detalle: `${m ? m.nombre + " · " : ""}${p.item.hora ? p.item.hora + " · " : ""}${p.item.tipo}`,
+            color: materiaColors[colorId].strong,
+          };
+        }
+        return {
+          id: p.item.id,
+          titulo: p.item.titulo,
+          detalle: p.item.todo_el_dia ? "Todo el día" : p.item.hora || "Personal",
+          color: PERSONAL_COLOR,
+        };
+      }),
+    [proximos, materiasAll]
+  );
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
       <ScrollView
@@ -92,46 +153,77 @@ export default function InicioScreen() {
           </PressableScale>
         </View>
 
-        {/* Lo próximo */}
-        <LinearGradient
-          colors={[colors.accent, "rgba(44,123,255,0.15)", "rgba(255,255,255,0.06)"]}
-          locations={[0, 0.6, 1]}
-          start={{ x: 0.1, y: 0 }}
-          end={{ x: 0.9, y: 1 }}
-          style={{ borderRadius: radii.xxl, padding: 1.5 }}
-        >
-          <View style={{ borderRadius: radii.xxl - 1.5, backgroundColor: colors.surfaceRaised, padding: spacing.xl, gap: spacing.lg }}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <AppText weight="700" style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: colors.accentText }}>
-                Lo próximo
-              </AppText>
-              <Pill label={demoHome.proximo.diasLabel} color={colors.warningText} background={colors.warningSoft} mono />
-            </View>
-            <View style={{ gap: spacing.xs }}>
-              <AppText weight="700" style={{ fontSize: 23, letterSpacing: -0.4, lineHeight: 26 }}>
-                {demoHome.proximo.titulo}
-              </AppText>
-              <AppText style={{ fontSize: 14, color: colors.textSecondary }}>{demoHome.proximo.detalle}</AppText>
-            </View>
-            <View style={{ gap: spacing.sm }}>
-              <View style={{ height: 6, borderRadius: radii.round, backgroundColor: colors.surfaceSoft, overflow: "hidden" }}>
-                <View
-                  style={{
-                    width: `${demoHome.proximo.progreso * 100}%`,
-                    height: "100%",
-                    borderRadius: radii.round,
-                    backgroundColor: colors.accent,
-                  }}
-                />
+        {/* Lo próximo — réplica de renderInicioHero() (runtime.js): usa
+            proximos[0] (ver src/lib/proximos.ts). Materia: badge de estado
+            (mismo criterio que Agenda, agendaBadgeInfo), + barra de
+            progreso/riesgoTxt si la materia ya tiene notas cargadas.
+            Personal: badge fijo "Personal", sin barra de progreso. */}
+        {heroItem ? (
+          <LinearGradient
+            colors={[colors.accent, "rgba(44,123,255,0.15)", "rgba(255,255,255,0.06)"]}
+            locations={[0, 0.6, 1]}
+            start={{ x: 0.1, y: 0 }}
+            end={{ x: 0.9, y: 1 }}
+            style={{ borderRadius: radii.xxl, padding: 1.5 }}
+          >
+            <View style={{ borderRadius: radii.xxl - 1.5, backgroundColor: colors.surfaceRaised, padding: spacing.xl, gap: spacing.lg }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <AppText weight="700" style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: colors.accentText }}>
+                  Lo próximo
+                </AppText>
+                {heroItem.tipo === "materia" && heroBadge ? (
+                  <Pill label={heroBadge.label} color={tone[heroBadge.tone].text} background={tone[heroBadge.tone].soft} mono />
+                ) : (
+                  <Pill label="Personal" color={tone.neutral.text} background={tone.neutral.soft} mono />
+                )}
               </View>
-              <AppText style={{ fontSize: 13, color: colors.textTertiary }}>{demoHome.proximo.progresoLabel}</AppText>
+              <View style={{ gap: spacing.xs }}>
+                <AppText weight="700" style={{ fontSize: 23, letterSpacing: -0.4, lineHeight: 26 }}>
+                  {heroItem.item.titulo}
+                </AppText>
+                <AppText style={{ fontSize: 14, color: colors.textSecondary }}>{heroMeta}</AppText>
+              </View>
+              {heroItem.tipo === "materia" && heroMateria && heroMateria.actual != null ? (
+                <View style={{ gap: spacing.sm }}>
+                  <View style={{ height: 6, borderRadius: radii.round, backgroundColor: colors.surfaceSoft, overflow: "hidden" }}>
+                    <View
+                      style={{
+                        width: `${Math.max(0, Math.min(100, (heroMateria.actual / heroMateria.esc.total) * 100))}%`,
+                        height: "100%",
+                        borderRadius: radii.round,
+                        backgroundColor: TONE_COLOR[heroMateria.tone],
+                      }}
+                    />
+                  </View>
+                  <AppText style={{ fontSize: 13, color: colors.textTertiary }}>
+                    {heroMateria.riesgoTxt ||
+                      `Vas aprobando · aprobás con ${formatValor(heroMateria.esc.aprob, heroMateria.esc.tipo)}${unidad(heroMateria.esc.tipo)}.`}
+                  </AppText>
+                </View>
+              ) : null}
+              <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                {heroItem.tipo === "materia" ? (
+                  <PrimaryButton
+                    label="Abrir materia"
+                    flex
+                    style={{ height: 40 }}
+                    onPress={() => heroMateriaRaw && router.push(`/materia/${heroMateriaRaw.id}`)}
+                  />
+                ) : (
+                  <PrimaryButton label="Ver en agenda" flex style={{ height: 40 }} onPress={() => router.push("/(tabs)/agenda")} />
+                )}
+                {heroItem.tipo === "materia" ? (
+                  <PrimaryButton
+                    label="Ver en agenda"
+                    variant="ghost"
+                    style={{ height: 40, paddingHorizontal: spacing.lg }}
+                    onPress={() => router.push("/(tabs)/agenda")}
+                  />
+                ) : null}
+              </View>
             </View>
-            <View style={{ flexDirection: "row", gap: spacing.sm }}>
-              <PrimaryButton label="Abrir materia" flex style={{ height: 40 }} />
-              <PrimaryButton label="Ver en agenda" variant="ghost" style={{ height: 40, paddingHorizontal: spacing.lg }} onPress={() => router.push("/(tabs)/agenda")} />
-            </View>
-          </View>
-        </LinearGradient>
+          </LinearGradient>
+        ) : null}
 
         {/* KPIs — réplica de computeKpis() (runtime.js): "Cursando" es un
             agregado propio de mobile (no existe en la web), las otras 3 sí
@@ -172,17 +264,24 @@ export default function InicioScreen() {
           </View>
         </View>
 
-        {/* Próximos 7 días */}
+        {/* Próximos días — título cambia según la cascada de fallback de
+            computeProximos() ("Próximos 7 días" / "Este mes" / nombre del
+            mes siguiente), ver src/lib/proximos.ts. */}
         <View>
           <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingBottom: spacing.sm }}>
             <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
-              Próximos 7 días
+              {proximos?.titulo ?? "Próximos 7 días"}
             </AppText>
             <AppText weight="500" style={{ fontSize: 14, color: colors.accent }} onPress={() => router.push("/(tabs)/agenda")}>
               Ver agenda
             </AppText>
           </View>
-          {demoHome.proximosDias.map((item) => (
+          {proximos && !proximosDiasRows.length ? (
+            <AppText style={{ fontSize: 13, color: colors.textTertiary, paddingVertical: spacing.md }}>
+              {proximos.titulo === "Este mes" ? "No tenés nada agendado este mes." : "No tenés nada agendado para los próximos 7 días."}
+            </AppText>
+          ) : null}
+          {proximosDiasRows.map((item) => (
             <View
               key={item.id}
               style={{

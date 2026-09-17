@@ -1,8 +1,9 @@
-// Tipos de las tablas reales de Supabase relevantes para auth/onboarding
-// (columnas confirmadas contra el proyecto real vía MCP) — el resto del
-// schema (agenda, event_tags, asistencias, etc.) todavía no tiene tipos acá,
-// ver src/data/demoContent.ts para el modelo "de muestra" que usan las
-// pantallas que no leen Supabase todavía.
+// Tipos de las tablas reales de Supabase (columnas confirmadas contra el
+// proyecto real vía MCP de Supabase). Cubre profiles/university/semestres/
+// materias/agenda/personal — las 4 tablas del schema (semestres, materias,
+// agenda, personal) más profiles y university. `event_tags` y `asistencias`
+// todavía no tienen tipos acá; ver src/data/demoContent.ts para el modelo
+// "de muestra" que usan las pantallas que no leen Supabase todavía.
 //   npx supabase gen types typescript --project-id <tu-project-id> > src/types/database.ts
 // reemplaza esto por los tipos generados reales cuando se necesite más cobertura.
 
@@ -82,10 +83,14 @@ export type EventoAgenda = {
   updated_at: string;
 };
 
-export type BloqueHorario = {
+export type Personal = {
   id: string;
-  materia_id: string;
-  dia_semana: number; // 0-6
-  hora_inicio: string;
-  hora_fin: string;
+  user_id: string;
+  titulo: string;
+  fecha: string;
+  hora: string | null;
+  todo_el_dia: boolean;
+  tag_id: string | null;
+  created_at: string;
+  updated_at: string;
 };
