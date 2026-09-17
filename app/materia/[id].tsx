@@ -10,7 +10,7 @@ import { AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, 
 import { demoMaterias, type DemoAsistenciaRango, type DemoEvaluacion, type DemoMateria } from "@/data/demoContent";
 import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
 import { today } from "@/lib/agenda";
-import { calcularSimulacion, escalaLabel, formatValor, toRow, unidad, type ComponenteFijoSim, type EvaluacionSim } from "@/lib/materias";
+import { calcularPuntosObtenidos, calcularSimulacion, escalaLabel, formatValor, toRow, unidad, type ComponenteFijoSim, type EvaluacionSim } from "@/lib/materias";
 import { rowToDemoEvaluacion, useAgenda } from "@/hooks/useAgenda";
 
 function isoToday() {
@@ -31,10 +31,10 @@ function calloutDe(m: DemoMateria): { titulo: string; texto: string } {
   // el total de ítems — de ahí depende si dice "Debés rendir examen" /
   // "Todavía no cargaste notas" y el "con N notas cargadas" del texto.
   const count = m.evaluaciones.filter((e) => e.estado === "aprobada").length;
-  const aprobTxt = `${formatValor(m.escalaAprob, m.escalaTotal)}${unidad(m.escalaTotal)}`;
-  const exonTxt = m.escalaExon != null ? `${formatValor(m.escalaExon, m.escalaTotal)}${unidad(m.escalaTotal)}` : null;
-  const escalaTxt = escalaLabel(m.escalaTotal).toLowerCase();
-  const totalTxt = `${formatValor(m.escalaTotal, m.escalaTotal)}${unidad(m.escalaTotal)}`;
+  const aprobTxt = `${formatValor(m.escalaAprob, m.escalaTipo)}${unidad(m.escalaTipo)}`;
+  const exonTxt = m.escalaExon != null ? `${formatValor(m.escalaExon, m.escalaTipo)}${unidad(m.escalaTipo)}` : null;
+  const escalaTxt = escalaLabel(m.escalaTipo, m.escalaTotal).toLowerCase();
+  const totalTxt = `${formatValor(m.escalaTotal, m.escalaTipo)}${unidad(m.escalaTipo)}`;
 
   if (m.estado === "aprobada") {
     return { titulo: "Ya aprobaste esta materia", texto: `Se calificó por ${escalaTxt} sobre ${totalTxt} y aprobaba con ${aprobTxt}.` };
@@ -54,13 +54,13 @@ function calloutDe(m: DemoMateria): { titulo: string; texto: string } {
   if (m.promedio >= m.escalaAprob) {
     return {
       titulo: m.tone === "warning" ? "Vas aprobando, pero raspando" : "Vas aprobando esta materia",
-      texto: `Esta materia se califica por ${escalaTxt} sobre ${totalTxt} y aprueba con ${aprobTxt}. Con ${count} ${count === 1 ? "nota cargada" : "notas cargadas"} tu promedio es ${formatValor(m.promedio, m.escalaTotal)}${unidad(m.escalaTotal)}, por encima del mínimo.`,
+      texto: `Esta materia se califica por ${escalaTxt} sobre ${totalTxt} y aprueba con ${aprobTxt}. Con ${count} ${count === 1 ? "nota cargada" : "notas cargadas"} tu promedio es ${formatValor(m.promedio, m.escalaTipo)}${unidad(m.escalaTipo)}, por encima del mínimo.`,
     };
   }
-  const necesita = `${formatValor(m.escalaAprob - m.promedio, m.escalaTotal)}${unidad(m.escalaTotal)}`;
+  const necesita = `${formatValor(m.escalaAprob - m.promedio, m.escalaTipo)}${unidad(m.escalaTipo)}`;
   return {
     titulo: `Te faltan ${necesita} para llegar a la aprobación`,
-    texto: `Esta materia se califica por ${escalaTxt} sobre ${totalTxt} y aprueba con ${aprobTxt}. Con ${count} ${count === 1 ? "nota cargada" : "notas cargadas"} tu promedio es ${formatValor(m.promedio, m.escalaTotal)}${unidad(m.escalaTotal)}, así que te faltan ${necesita} para llegar al mínimo.`,
+    texto: `Esta materia se califica por ${escalaTxt} sobre ${totalTxt} y aprueba con ${aprobTxt}. Con ${count} ${count === 1 ? "nota cargada" : "notas cargadas"} tu promedio es ${formatValor(m.promedio, m.escalaTipo)}${unidad(m.escalaTipo)}, así que te faltan ${necesita} para llegar al mínimo.`,
   };
 }
 
@@ -132,10 +132,6 @@ export default function MateriaDetalleScreen() {
   );
 
   const accent = materiaColors[materia.colorId];
-  const t = tone[materia.tone];
-  const notaTxt = materia.promedio > 0 ? formatValor(materia.promedio, materia.escalaTotal) : "—";
-  const pct = materia.promedio > 0 ? Math.max(0, Math.min(1, materia.promedio / materia.escalaTotal)) : 0;
-  const callout = calloutDe({ ...materia, evaluaciones });
 
   const evaluacionesSim: EvaluacionSim[] = evaluaciones.map((e) => ({
     id: e.id,
@@ -144,6 +140,19 @@ export default function MateriaDetalleScreen() {
   }));
   const componentesFijosSim: ComponenteFijoSim[] = materia.componentesFijos.map((c) => ({ id: c.id, puntajeMax: c.puntajeMax, valor: c.valor }));
   const sim = calcularSimulacion({ total: materia.escalaTotal, aprob: materia.escalaAprob, exoneracion: materia.escalaExon ?? null }, evaluacionesSim, valoresSimulados, componentesFijosSim);
+
+  // Anillo de "Calificación y aprobación": mismo cálculo que Materias (ver
+  // calcularPuntosObtenidos en lib/materias.ts) — puntos ya cargados sobre
+  // esc.total, no una proyección con los sliders del simulador de abajo.
+  const { puntos: puntosObtenidos, hayPuntos: hayPuntosCargados, tone: ringTone } = calcularPuntosObtenidos(
+    { aprob: materia.escalaAprob, exoneracion: materia.escalaExon ?? null },
+    evaluaciones.map((e) => ({ hecho: e.estado === "aprobada", nota: e.nota ?? null })),
+    materia.componentesFijos
+  );
+  const t = tone[ringTone];
+  const notaTxt = hayPuntosCargados ? formatValor(puntosObtenidos, materia.escalaTipo) : "—";
+  const pct = materia.escalaTotal > 0 ? Math.max(0, Math.min(1, puntosObtenidos / materia.escalaTotal)) : 0;
+  const callout = calloutDe({ ...materia, promedio: puntosObtenidos, tone: ringTone, evaluaciones });
 
   const evaluacionesSinNota = evaluaciones.filter((e) => e.estado === "pendiente");
   const fijosSinValor = materia.componentesFijos.filter((c) => c.valor == null);
@@ -253,7 +262,7 @@ export default function MateriaDetalleScreen() {
               <Pill label={estadoLabel[materia.estado]} background={tone[estadoTone[materia.estado]].soft} color={tone[estadoTone[materia.estado]].text} />
             </View>
             <AppText mono style={{ fontSize: 12, color: colors.textTertiary }}>
-              {materia.docente} · {escalaLabel(materia.escalaTotal).toLowerCase()}
+              {materia.docente} · {escalaLabel(materia.escalaTipo, materia.escalaTotal).toLowerCase()}
             </AppText>
           </View>
         </View>
@@ -293,7 +302,7 @@ export default function MateriaDetalleScreen() {
             <AppText weight="600" style={{ fontSize: 17, letterSpacing: -0.2 }}>
               Calificación y aprobación
             </AppText>
-            <Pill label={escalaLabel(materia.escalaTotal)} background={colors.surfaceSoft} />
+            <Pill label={escalaLabel(materia.escalaTipo, materia.escalaTotal)} background={colors.surfaceSoft} />
           </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.lg }}>
@@ -303,7 +312,7 @@ export default function MateriaDetalleScreen() {
               progress={pct}
               color={t.strong}
               centerValue={notaTxt}
-              centerLabel={`aprueba ${formatValor(materia.escalaAprob, materia.escalaTotal)}${unidad(materia.escalaTotal)}`}
+              centerLabel={`aprueba ${formatValor(materia.escalaAprob, materia.escalaTipo)}${unidad(materia.escalaTipo)}`}
               valueFontSize={26}
               labelFontSize={11}
             />
@@ -316,8 +325,8 @@ export default function MateriaDetalleScreen() {
                         {e.nombre}
                       </AppText>
                       <AppText mono weight="600" style={{ fontSize: 13 }}>
-                        {formatValor(e.nota ?? 0, materia.escalaTotal)}
-                        {unidad(materia.escalaTotal)}
+                        {formatValor(e.nota ?? 0, materia.escalaTipo)}
+                        {unidad(materia.escalaTipo)}
                       </AppText>
                     </View>
                     <View style={{ height: 4, borderRadius: radii.round, backgroundColor: colors.surfaceSoft, overflow: "hidden" }}>
@@ -386,7 +395,7 @@ export default function MateriaDetalleScreen() {
           {haySimulable && simuladorAbierto ? (
             <View style={{ gap: spacing.lg, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderFaint }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.lg }}>
-                <ProgressRing size={64} strokeWidth={7} progress={simPct} color={tone[simTone].strong} centerValue={formatValor(sim.puntosProyectados, materia.escalaTotal)} valueFontSize={14} />
+                <ProgressRing size={64} strokeWidth={7} progress={simPct} color={tone[simTone].strong} centerValue={formatValor(sim.puntosProyectados, materia.escalaTipo)} valueFontSize={14} />
                 <View style={{ flex: 1, gap: 4 }}>
                   <Pill label="Simulado" background={colors.accentSofter} color={colors.accentText} style={{ height: 20, paddingHorizontal: 8 }} />
                   <AppText style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 18 }}>
@@ -395,8 +404,8 @@ export default function MateriaDetalleScreen() {
                       : sim.imposible
                         ? "Con lo que ya tenés y lo máximo que falta, ya no es matemáticamente posible aprobar."
                         : sim.faltanAprobacion === 0
-                          ? `Con este escenario, llegás a ${formatValor(sim.puntosProyectados, materia.escalaTotal)}${unidad(materia.escalaTotal)} — aprobarías.`
-                          : `Con este escenario, te faltan ${formatValor(sim.faltanAprobacion ?? 0, materia.escalaTotal)}${unidad(materia.escalaTotal)} para aprobar (${formatValor(sim.aprob, materia.escalaTotal)}${unidad(materia.escalaTotal)}).`}
+                          ? `Con este escenario, llegás a ${formatValor(sim.puntosProyectados, materia.escalaTipo)}${unidad(materia.escalaTipo)} — aprobarías.`
+                          : `Con este escenario, te faltan ${formatValor(sim.faltanAprobacion ?? 0, materia.escalaTipo)}${unidad(materia.escalaTipo)} para aprobar (${formatValor(sim.aprob, materia.escalaTipo)}${unidad(materia.escalaTipo)}).`}
                   </AppText>
                 </View>
               </View>
@@ -405,21 +414,21 @@ export default function MateriaDetalleScreen() {
                 <View style={{ gap: 2 }}>
                   <AppText style={{ fontSize: 11, color: colors.textFaint }}>Puntos reales</AppText>
                   <AppText mono weight="600" style={{ fontSize: 14 }}>
-                    {formatValor(sim.puntosReales, materia.escalaTotal)}
-                    {unidad(materia.escalaTotal)}
+                    {formatValor(sim.puntosReales, materia.escalaTipo)}
+                    {unidad(materia.escalaTipo)}
                   </AppText>
                 </View>
                 <View style={{ gap: 2 }}>
                   <AppText style={{ fontSize: 11, color: colors.textFaint }}>Disponibles</AppText>
                   <AppText mono weight="600" style={{ fontSize: 14 }}>
-                    {formatValor(sim.disponibles, materia.escalaTotal)}
-                    {unidad(materia.escalaTotal)}
+                    {formatValor(sim.disponibles, materia.escalaTipo)}
+                    {unidad(materia.escalaTipo)}
                   </AppText>
                 </View>
                 <View style={{ gap: 2 }}>
                   <AppText style={{ fontSize: 11, color: colors.textFaint }}>Proyectado</AppText>
                   <AppText mono weight="600" style={{ fontSize: 14 }}>
-                    {formatValor(sim.puntosProyectados, materia.escalaTotal)}/{formatValor(sim.total, materia.escalaTotal)}
+                    {formatValor(sim.puntosProyectados, materia.escalaTipo)}/{formatValor(sim.total, materia.escalaTipo)}
                   </AppText>
                 </View>
               </View>
@@ -427,18 +436,18 @@ export default function MateriaDetalleScreen() {
               {sim.asegurado ? (
                 <Aviso tone="success" texto="Aprobación asegurada con lo que ya tenés." />
               ) : sim.imposible ? (
-                <Aviso tone="danger" texto={`Objetivo imposible: incluso sacando el máximo en todo lo que falta, no se llega a ${formatValor(sim.aprob, materia.escalaTotal)}${unidad(materia.escalaTotal)}.`} />
+                <Aviso tone="danger" texto={`Objetivo imposible: incluso sacando el máximo en todo lo que falta, no se llega a ${formatValor(sim.aprob, materia.escalaTipo)}${unidad(materia.escalaTipo)}.`} />
               ) : sim.promedioNecesario != null ? (
-                <Aviso tone="warning" texto={`Necesitás promediar ${formatValor(sim.promedioNecesario, materia.escalaTotal)}${unidad(materia.escalaTotal)} en las evaluaciones que faltan para llegar al mínimo.`} />
+                <Aviso tone="warning" texto={`Necesitás promediar ${formatValor(sim.promedioNecesario, materia.escalaTipo)}${unidad(materia.escalaTipo)} en las evaluaciones que faltan para llegar al mínimo.`} />
               ) : null}
 
               {sim.exoneracion != null ? (
                 sim.exonerado ? (
-                  <Aviso tone="success" texto={`Exoneración asegurada con lo que ya tenés (${formatValor(sim.exoneracion, materia.escalaTotal)}${unidad(materia.escalaTotal)}).`} />
+                  <Aviso tone="success" texto={`Exoneración asegurada con lo que ya tenés (${formatValor(sim.exoneracion, materia.escalaTipo)}${unidad(materia.escalaTipo)}).`} />
                 ) : sim.imposibleExonerar ? (
-                  <Aviso tone="danger" texto={`Exonerar ya no es matemáticamente posible: no se llega a ${formatValor(sim.exoneracion, materia.escalaTotal)}${unidad(materia.escalaTotal)}.`} />
+                  <Aviso tone="danger" texto={`Exonerar ya no es matemáticamente posible: no se llega a ${formatValor(sim.exoneracion, materia.escalaTipo)}${unidad(materia.escalaTipo)}.`} />
                 ) : (
-                  <Aviso tone="warning" texto={`Con este escenario, te faltan ${formatValor(sim.faltanExoneracion ?? 0, materia.escalaTotal)}${unidad(materia.escalaTotal)} para exonerar (${formatValor(sim.exoneracion, materia.escalaTotal)}${unidad(materia.escalaTotal)}).`} />
+                  <Aviso tone="warning" texto={`Con este escenario, te faltan ${formatValor(sim.faltanExoneracion ?? 0, materia.escalaTipo)}${unidad(materia.escalaTipo)} para exonerar (${formatValor(sim.exoneracion, materia.escalaTipo)}${unidad(materia.escalaTipo)}).`} />
                 )
               ) : null}
 
@@ -450,7 +459,7 @@ export default function MateriaDetalleScreen() {
                         {e.nombre}
                       </AppText>
                       <AppText mono weight="600" style={{ fontSize: 13 }}>
-                        {formatValor(valoresSimulados[e.id] ?? 0, materia.escalaTotal)}/{formatValor(e.notaMax, materia.escalaTotal)}
+                        {formatValor(valoresSimulados[e.id] ?? 0, materia.escalaTipo)}/{formatValor(e.notaMax, materia.escalaTipo)}
                       </AppText>
                     </View>
                     <RangeSlider max={e.notaMax} value={valoresSimulados[e.id] ?? 0} color={t.strong} onChange={(v) => setValoresSimulados((prev) => ({ ...prev, [e.id]: v }))} />
@@ -463,7 +472,7 @@ export default function MateriaDetalleScreen() {
                         {c.titulo}
                       </AppText>
                       <AppText mono weight="600" style={{ fontSize: 13 }}>
-                        {formatValor(valoresSimulados[c.id] ?? 0, materia.escalaTotal)}/{formatValor(c.puntajeMax, materia.escalaTotal)}
+                        {formatValor(valoresSimulados[c.id] ?? 0, materia.escalaTipo)}/{formatValor(c.puntajeMax, materia.escalaTipo)}
                       </AppText>
                     </View>
                     <RangeSlider max={c.puntajeMax} value={valoresSimulados[c.id] ?? 0} color={t.strong} onChange={(v) => setValoresSimulados((prev) => ({ ...prev, [c.id]: v }))} />
@@ -473,8 +482,8 @@ export default function MateriaDetalleScreen() {
 
               {sim.escalaInconsistente ? (
                 <AppText style={{ fontSize: 11, color: colors.textFaint, lineHeight: 15 }}>
-                  Ojo: la suma de notas máximas de las evaluaciones no coincide con el total de la materia ({formatValor(materia.escalaTotal, materia.escalaTotal)}
-                  {unidad(materia.escalaTotal)}).
+                  Ojo: la suma de notas máximas de las evaluaciones no coincide con el total de la materia ({formatValor(materia.escalaTotal, materia.escalaTipo)}
+                  {unidad(materia.escalaTipo)}).
                 </AppText>
               ) : null}
 
@@ -751,8 +760,8 @@ function EvalRow({ item, materia, onPress }: { item: DemoEvaluacion; materia: De
       </View>
       {hecho ? (
         <AppText mono weight="600" style={{ fontSize: 15 }}>
-          {formatValor(item.nota ?? 0, materia.escalaTotal)}
-          <AppText style={{ fontSize: 12, color: colors.textTertiary }}>/{formatValor(item.notaMax, materia.escalaTotal)}</AppText>
+          {formatValor(item.nota ?? 0, materia.escalaTipo)}
+          <AppText style={{ fontSize: 12, color: colors.textTertiary }}>/{formatValor(item.notaMax, materia.escalaTipo)}</AppText>
         </AppText>
       ) : (
         <Pill label="Cargar nota" color={colors.accentText} background={colors.accentSoft} />

@@ -8,7 +8,8 @@ import type { Materia } from "@/types/database";
 import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, type EstadoMateria } from "@/theme/tokens";
 import { AppText, Fab, Pill, PressableScale, PrimaryButton, ProgressRing } from "@/components/ui";
 import { demoMaterias, type DemoMateria } from "@/data/demoContent";
-import { escalaLabel, formatValor, toRow, unidad } from "@/lib/materias";
+import { calcularPuntosObtenidos, escalaLabel, formatValor, toRow, unidad } from "@/lib/materias";
+import { useAgenda } from "@/hooks/useAgenda";
 
 type Row = DemoMateria;
 type FiltroEstado = "todas" | EstadoMateria;
@@ -53,10 +54,10 @@ function EstadoBadge({ estado }: { estado: EstadoMateria }) {
 
 function MateriaCard({ item, onPress }: { item: Row; onPress: () => void }) {
   const t = tone[item.tone];
-  const notaTxt = item.promedio > 0 ? formatValor(item.promedio, item.escalaTotal) : "—";
+  const notaTxt = item.promedio > 0 ? formatValor(item.promedio, item.escalaTipo) : "—";
   const pct = item.promedio > 0 ? Math.max(0, Math.min(1, item.promedio / item.escalaTotal)) : 0;
-  const aprobTxt = `aprueba ${formatValor(item.escalaAprob, item.escalaTotal)}${unidad(item.escalaTotal)}`;
-  const exonTxt = item.escalaExon != null ? `exonera con ${formatValor(item.escalaExon, item.escalaTotal)}${unidad(item.escalaTotal)}` : null;
+  const aprobTxt = `aprueba ${formatValor(item.escalaAprob, item.escalaTipo)}${unidad(item.escalaTipo)}`;
+  const exonTxt = item.escalaExon != null ? `exonera con ${formatValor(item.escalaExon, item.escalaTipo)}${unidad(item.escalaTipo)}` : null;
 
   return (
     <PressableScale
@@ -107,7 +108,7 @@ function MateriaCard({ item, onPress }: { item: Row; onPress: () => void }) {
         }}
       >
         <AppText numberOfLines={1} style={{ fontSize: 12, color: colors.textTertiary, flex: 1 }}>
-          {escalaLabel(item.escalaTotal)} · {aprobTxt}
+          {escalaLabel(item.escalaTipo, item.escalaTotal)} · {aprobTxt}
           {exonTxt ? ` · ${exonTxt}` : ""}
         </AppText>
         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.strong }} />
@@ -146,7 +147,7 @@ function AddMateriaCard({ onPress }: { onPress: () => void }) {
 
 function MateriaTableRow({ item, onPress }: { item: Row; onPress: () => void }) {
   const accent = materiaColors[item.colorId];
-  const notaTxt = item.promedio > 0 ? formatValor(item.promedio, item.escalaTotal) : "—";
+  const notaTxt = item.promedio > 0 ? formatValor(item.promedio, item.escalaTipo) : "—";
   return (
     <PressableScale
       scaleTo={0.99}
@@ -168,7 +169,7 @@ function MateriaTableRow({ item, onPress }: { item: Row; onPress: () => void }) 
         {item.docente}
       </AppText>
       <AppText mono weight="600" style={{ fontSize: 13, width: 44, textAlign: "right" }}>
-        {notaTxt}/{formatValor(item.escalaAprob, item.escalaTotal)}
+        {notaTxt}/{formatValor(item.escalaAprob, item.escalaTipo)}
       </AppText>
       <View style={{ width: 78, alignItems: "flex-end" }}>
         <EstadoBadge estado={item.estado} />
@@ -211,10 +212,39 @@ export default function MateriasScreen() {
       .then(({ data }) => setMaterias(data ?? []));
   }, []);
 
+  // Agenda/Calendario/Progreso muestran histórico completo a propósito
+  // (ver skill cursada-conventions), así que sin filtrar por materia acá:
+  // se agrupa todo por materia_id para sumar los puntos de cada una.
+  const agenda = useAgenda();
+  const agendaByMateria = useMemo(() => {
+    const map = new Map<string, { hecho: boolean; nota: number | null }[]>();
+    (agenda.rows ?? []).forEach((r) => {
+      if (!r.materia_id) return;
+      const arr = map.get(r.materia_id) ?? [];
+      arr.push({ hecho: r.hecho, nota: r.nota });
+      map.set(r.materia_id, arr);
+    });
+    return map;
+  }, [agenda.rows]);
+
   const rows = useMemo<Row[]>(() => {
-    if (materias && materias.length > 0) return materias.map(toRow);
+    if (materias && materias.length > 0) {
+      return materias.map((m) => {
+        const row = toRow(m);
+        // Anillo/nota de la tarjeta: mismos puntos ya cargados que el
+        // anillo de Detalle de materia (ver calcularPuntosObtenidos en
+        // lib/materias.ts) — antes venían siempre en 0 (promedio de
+        // muestra hardcodeado), por eso el anillo nunca se llenaba.
+        const { puntos, hayPuntos, tone: ringTone } = calcularPuntosObtenidos(
+          { aprob: row.escalaAprob, exoneracion: row.escalaExon ?? null },
+          agendaByMateria.get(m.id) ?? [],
+          row.componentesFijos
+        );
+        return { ...row, promedio: hayPuntos ? puntos : 0, tone: ringTone };
+      });
+    }
     return demoMaterias;
-  }, [materias]);
+  }, [materias, agendaByMateria]);
 
   const counts = useMemo(() => {
     const c: Partial<Record<FiltroEstado, number>> = { todas: rows.length };

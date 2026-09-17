@@ -1,5 +1,5 @@
-import type { Materia } from "@/types/database";
-import { materiaColors, type MateriaColorId } from "@/theme/tokens";
+import type { EscalaTipo, Materia } from "@/types/database";
+import { materiaColors, type MateriaColorId, type Tone } from "@/theme/tokens";
 import { demoMaterias, type DemoMateria } from "@/data/demoContent";
 import { formatHorario, nombreDesdePeriodo, PERIODO_ACTUAL } from "@/lib/catalog";
 
@@ -26,6 +26,7 @@ export function toRow(materia: Materia): DemoMateria {
     tone: "neutral",
     salon: materia.salon || "Sin salón asignado",
     periodoLabel: nombreDesdePeriodo(PERIODO_ACTUAL),
+    escalaTipo: esc?.tipo ?? "nota",
     escalaTotal: esc?.total ?? 12,
     escalaAprob: esc?.aprob ?? 6,
     escalaExon: esc?.exoneracion ?? undefined,
@@ -137,22 +138,46 @@ export function calcularSimulacion(
   };
 }
 
-// Réplica de `escLabel()`/formateo de la web — mismo texto exacto para las
-// 3 escalas (nota 0–12, porcentaje, puntaje libre). Vive acá (en vez de
-// duplicarse por pantalla) porque Detalle de materia y Materias la usan
+// Réplica de `escLabel()`/`uni()`/`val()` de la web — mismo texto exacto
+// para las 3 escalas (nota 0–12, porcentaje, puntaje libre). El TIPO es lo
+// que manda (esc.tipo, elegido por el usuario al cargar la materia), nunca
+// se infiere del total — una materia "puntos" puede totalizar 100 sin ser
+// porcentaje, o "nota" sin ser sobre 12 (ver toneDe/escLabel en runtime.js,
+// que reciben el objeto esc completo por el mismo motivo). Vive acá (en vez
+// de duplicarse por pantalla) porque Detalle de materia y Materias la usan
 // ambas.
-export function escalaLabel(total: number): string {
-  if (total === 12) return "Nota 0–12";
-  if (total === 100) return "Porcentaje";
+export function escalaLabel(tipo: EscalaTipo, total: number): string {
+  if (tipo === "nota") return "Nota 0–12";
+  if (tipo === "pct") return "Porcentaje";
   return `Puntaje ${total}`;
 }
 
-export function unidad(total: number): string {
-  if (total === 12) return "";
-  if (total === 100) return "%";
+export function unidad(tipo: EscalaTipo): string {
+  if (tipo === "nota") return "";
+  if (tipo === "pct") return "%";
   return " pts";
 }
 
-export function formatValor(v: number, total: number): string {
-  return total === 12 ? v.toFixed(1) : String(Math.round(v));
+export function formatValor(v: number, tipo: EscalaTipo): string {
+  return tipo === "nota" ? v.toFixed(1) : String(Math.round(v));
+}
+
+// Puntos YA cargados de una materia = suma de notas de evaluaciones
+// rendidas (agenda.hecho + agenda.nota) + componentes fijos con valor —
+// mismo cálculo que puntosReales de calcularSimulacion (sin los sliders),
+// factorizado acá porque lo usan Materias (todas las materias de una) y
+// Detalle de materia (una sola, con más detalle). esc.total nunca se
+// recalcula sumando notaMax a mano, se usa tal cual viene de Supabase.
+// Corte de color en esc.aprob/esc.exoneracion, no en un margen.
+export function calcularPuntosObtenidos(
+  esc: { aprob: number; exoneracion?: number | null },
+  agendaItems: { hecho: boolean; nota: number | null | undefined }[],
+  componentesFijos: { valor: number | null }[]
+): { puntos: number; hayPuntos: boolean; tone: Tone } {
+  const notaSum = agendaItems.filter((a) => a.hecho && a.nota != null).reduce((s, a) => s + (a.nota ?? 0), 0);
+  const fijosSum = componentesFijos.filter((c) => c.valor != null).reduce((s, c) => s + (c.valor ?? 0), 0);
+  const puntos = notaSum + fijosSum;
+  const hayPuntos = agendaItems.some((a) => a.hecho && a.nota != null) || componentesFijos.some((c) => c.valor != null);
+  const tone: Tone = !hayPuntos ? "neutral" : puntos < esc.aprob ? "danger" : esc.exoneracion != null && puntos < esc.exoneracion ? "warning" : "success";
+  return { puntos, hayPuntos, tone };
 }

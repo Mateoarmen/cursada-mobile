@@ -42,7 +42,8 @@ export type Semestre = {
   updated_at: string;
 };
 
-export type EscalaMateria = { tipo: "nota" | "puntos" | "pct"; total: number; aprob: number; exoneracion: number | null };
+export type EscalaTipo = "nota" | "puntos" | "pct";
+export type EscalaMateria = { tipo: EscalaTipo; total: number; aprob: number; exoneracion: number | null };
 
 export type Materia = {
   id: string;

@@ -7,6 +7,7 @@
 import { colors, materiaColors, type EstadoMateria, type MateriaColorId, type Tone } from "@/theme/tokens";
 import { nombreDesdePeriodo, PERIODO_ACTUAL, type Bloque } from "@/lib/catalog";
 import { formatFechaAgenda } from "@/lib/agenda";
+import type { EscalaTipo } from "@/types/database";
 
 export type DemoEvaluacion = {
   id: string;
@@ -46,7 +47,11 @@ export type DemoMateria = {
   tone: Tone;
   salon: string;
   periodoLabel: string;
-  escalaTotal: number; // 12 = "Nota 0–12", 100 = "Porcentaje", otro = "Puntaje N"
+  // El TIPO de escala lo define el usuario al cargar la materia (esc.tipo
+  // en Supabase) — nunca se infiere del total. Una materia "puntos" puede
+  // perfectamente totalizar 100 sin ser porcentaje (ver lib/materias.ts).
+  escalaTipo: EscalaTipo;
+  escalaTotal: number;
   escalaAprob: number;
   escalaExon?: number;
   progreso: number; // 0-1, avance hacia exoneración/aprobación
@@ -78,6 +83,7 @@ export const demoMaterias: DemoMateria[] = [
     tone: "success",
     salon: "Central · Aula 402",
     periodoLabel: PERIODO_LABEL,
+    escalaTipo: "nota",
     escalaTotal: 12,
     escalaAprob: 6,
     escalaExon: 9,
@@ -109,6 +115,7 @@ export const demoMaterias: DemoMateria[] = [
     tone: "warning",
     salon: "Cuareim · Aula 210",
     periodoLabel: PERIODO_LABEL,
+    escalaTipo: "nota",
     escalaTotal: 12,
     escalaAprob: 6,
     progreso: 0.55,
@@ -139,6 +146,7 @@ export const demoMaterias: DemoMateria[] = [
     tone: "danger",
     salon: "Central · Aula 118",
     periodoLabel: PERIODO_LABEL,
+    escalaTipo: "nota",
     escalaTotal: 12,
     escalaAprob: 6,
     progreso: 0.4,
@@ -169,6 +177,7 @@ export const demoMaterias: DemoMateria[] = [
     tone: "success",
     salon: "Pocitos · Aula 305",
     periodoLabel: PERIODO_LABEL,
+    escalaTipo: "nota",
     escalaTotal: 12,
     escalaAprob: 6,
     escalaExon: 9,
@@ -200,6 +209,7 @@ export const demoMaterias: DemoMateria[] = [
     tone: "success",
     salon: "Central · Aula 210",
     periodoLabel: "2026 · Primer semestre",
+    escalaTipo: "nota",
     escalaTotal: 12,
     escalaAprob: 6,
     progreso: 0.3,
@@ -226,6 +236,7 @@ export const demoMaterias: DemoMateria[] = [
     tone: "neutral",
     salon: "Sin salón asignado",
     periodoLabel: "2026 · Primer semestre",
+    escalaTipo: "pct",
     escalaTotal: 100,
     escalaAprob: 70,
     progreso: 0,
