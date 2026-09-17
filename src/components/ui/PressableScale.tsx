@@ -13,7 +13,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 // Una sola animated component (no un <Animated.View> envolviendo el
 // <Pressable>) para que `style` — flex, width, etc — participe del layout
 // del padre igual que cualquier otro Pressable.
-export function PressableScale({ style, scaleTo = 0.96, onPressIn, onPressOut, ...rest }: Props) {
+export function PressableScale({ style, scaleTo = 0.96, onPressIn, onPressOut, accessibilityRole = "button", ...rest }: Props) {
   const scale = useRef(new Animated.Value(1)).current;
 
   const animateTo = (value: number) => {
@@ -27,6 +27,7 @@ export function PressableScale({ style, scaleTo = 0.96, onPressIn, onPressOut, .
 
   return (
     <AnimatedPressable
+      accessibilityRole={accessibilityRole}
       style={[style, { transform: [{ scale }] }]}
       onPressIn={(e) => {
         animateTo(scaleTo);

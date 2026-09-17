@@ -2,11 +2,10 @@ import { useCallback, useMemo, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
 import { ActivityIndicator, FlatList, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, type EstadoMateria } from "@/theme/tokens";
-import { AppText, Fab, Pill, PressableScale, PrimaryButton, ProgressRing } from "@/components/ui";
+import { AppIcon, AppText, Fab, Pill, PressableScale, PrimaryButton, ProgressRing } from "@/components/ui";
 import type { DemoMateria } from "@/data/demoContent";
 import { escalaLabel, formatValor, materiaComputadaToRow, unidad } from "@/lib/materias";
 import { getSemestreActivoId } from "@/lib/semestres";
@@ -183,7 +182,7 @@ function EmptyState({ onPressPrimera }: { onPressPrimera: () => void }) {
   return (
     <View style={{ alignItems: "center", gap: spacing.lg, paddingTop: spacing.xxxl * 2, paddingHorizontal: spacing.xl }}>
       <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }}>
-        <Ionicons name="book-outline" size={34} color={colors.textFaint} />
+        <AppIcon name="book-outline" size={34} color={colors.textFaint} />
       </View>
       <View style={{ alignItems: "center", gap: spacing.xs }}>
         <AppText weight="600" style={{ fontSize: 17 }}>
@@ -284,7 +283,7 @@ export default function MateriasScreen() {
             gap: spacing.sm,
           }}
         >
-          <Ionicons name="search" size={15} color={colors.textFaint} />
+          <AppIcon name="search" size={15} color={colors.textFaint} />
           <TextInput
             value={query}
             onChangeText={setQuery}

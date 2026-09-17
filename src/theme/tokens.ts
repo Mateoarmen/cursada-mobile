@@ -24,8 +24,11 @@ export const colors = {
   text: "#F5F5F7",
   textBody: "rgba(245,245,247,0.8)",
   textSecondary: "rgba(245,245,247,0.6)",
-  textTertiary: "rgba(245,245,247,0.45)",
-  textFaint: "rgba(245,245,247,0.4)",
+  // Alphas subidas desde 0.45/0.4 — al valor original, texto chico (<17pt)
+  // sobre `bg` quedaba bajo el piso de contraste AA (~3.6-4.2:1); 0.55
+  // despeja 4.5:1 sin perder la jerarquía "atenuado" frente a textSecondary.
+  textTertiary: "rgba(245,245,247,0.55)",
+  textFaint: "rgba(245,245,247,0.55)",
   textGhost: "rgba(245,245,247,0.3)",
 
   success: "#34C759",
@@ -131,6 +134,16 @@ export const spacing = {
   xl: 20,
   xxl: 24,
   xxxl: 32,
+} as const;
+
+// Tab bar flotante (ver app/(tabs)/_layout.tsx): dimensiones compartidas con
+// cualquier pantalla de tab que necesite reservar espacio real para no
+// quedar tapada, en vez de adivinar un padding fijo.
+export const tabBar = {
+  height: 54,
+  bottomGapIOS: 8,
+  bottomGapOther: 16,
+  sideMargin: 20,
 } as const;
 
 export const fonts = {

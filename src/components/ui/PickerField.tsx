@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing } from "@/theme/tokens";
+import { AppIcon } from "./AppIcon";
 import { AppText } from "./AppText";
 import { BottomSheet } from "./BottomSheet";
 import { PressableScale } from "./PressableScale";
@@ -43,7 +43,7 @@ export function PickerField({ label, value, placeholder, options, onSelect, comp
           <AppText style={{ fontSize: 14, color: selected ? colors.text : colors.textFaint, flexShrink: 1 }} numberOfLines={1}>
             {selected ?? placeholder}
           </AppText>
-          <Ionicons name="chevron-down" size={14} color={colors.textFaint} />
+          <AppIcon name="chevron-down" size={14} color={colors.textFaint} />
         </View>
       </PressableScale>
       <BottomSheet visible={open} onClose={() => setOpen(false)}>
@@ -71,7 +71,7 @@ export function PickerField({ label, value, placeholder, options, onSelect, comp
               <AppText weight={value === o.value ? "600" : "400"} style={{ fontSize: 15 }}>
                 {o.label}
               </AppText>
-              {value === o.value ? <Ionicons name="checkmark" size={18} color={colors.accent} /> : null}
+              {value === o.value ? <AppIcon name="checkmark" size={18} color={colors.accent} /> : null}
             </PressableScale>
           ))}
         </ScrollView>

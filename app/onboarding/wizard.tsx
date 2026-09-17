@@ -2,12 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { router } from "expo-router";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/hooks/useSession";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
 import { colors, radii, spacing } from "@/theme/tokens";
-import { AppText, PressableScale, PrimaryButton } from "@/components/ui";
+import { AppIcon, AppText, PressableScale, PrimaryButton } from "@/components/ui";
 import {
   aplicarAgenda,
   aplicarDictados,
@@ -801,7 +800,7 @@ export default function OnboardingWizardScreen() {
                       </AppText>
                     ))}
                     <PressableScale scaleTo={0.98} onPress={() => setAceptarSolapamiento((v) => !v)} style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingTop: 4 }}>
-                      <Ionicons name={aceptarSolapamiento ? "checkbox" : "square-outline"} size={18} color={colors.text} />
+                      <AppIcon name={aceptarSolapamiento ? "checkbox" : "square-outline"} size={18} color={colors.text} />
                       <AppText style={{ fontSize: 12, color: colors.textSecondary }}>Confirmar igual, ya sé que se pisan.</AppText>
                     </PressableScale>
                   </View>

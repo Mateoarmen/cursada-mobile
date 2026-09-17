@@ -30,7 +30,8 @@ export function PrimaryButton({ label, onPress, variant = "accent", style, flex,
       disabled={disabled}
       style={[
         {
-          height: 50,
+          minHeight: 50,
+          paddingVertical: 8,
           borderRadius: radii.sm,
           backgroundColor: v.bg,
           borderWidth: v.border ? 1 : 0,

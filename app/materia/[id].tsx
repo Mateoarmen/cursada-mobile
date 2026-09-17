@@ -2,11 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { ActivityIndicator, Alert, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, type Tone } from "@/theme/tokens";
-import { AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, RangeSlider } from "@/components/ui";
+import { AppIcon, AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, RangeSlider } from "@/components/ui";
 import type { DemoAsistenciaRango, DemoEvaluacion, DemoMateria } from "@/data/demoContent";
 import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
 import { today } from "@/lib/agenda";
@@ -390,7 +389,7 @@ export default function MateriaDetalleScreen() {
                   gap: spacing.sm,
                 }}
               >
-                <Ionicons name={simuladorAbierto ? "chevron-up" : "options-outline"} size={15} color={colors.text} />
+                <AppIcon name={simuladorAbierto ? "chevron-up" : "options-outline"} size={15} color={colors.text} />
                 <AppText weight="600" style={{ fontSize: 13 }}>
                   Simular escenario
                 </AppText>
@@ -673,7 +672,7 @@ export default function MateriaDetalleScreen() {
             }}
             style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md }}
           >
-            <Ionicons name="checkmark-circle-outline" size={18} color={colors.text} />
+            <AppIcon name="checkmark-circle-outline" size={18} color={colors.text} />
             <AppText weight="500" style={{ fontSize: 15 }}>
               Marcar como rendida / cargar nota
             </AppText>
@@ -692,7 +691,7 @@ export default function MateriaDetalleScreen() {
             }}
             style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md }}
           >
-            <Ionicons name="arrow-undo-outline" size={18} color={colors.text} />
+            <AppIcon name="arrow-undo-outline" size={18} color={colors.text} />
             <AppText weight="500" style={{ fontSize: 15 }}>
               Marcar como pendiente
             </AppText>
@@ -706,7 +705,7 @@ export default function MateriaDetalleScreen() {
           }}
           style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderFaint }}
         >
-          <Ionicons name="create-outline" size={18} color={colors.text} />
+          <AppIcon name="create-outline" size={18} color={colors.text} />
           <AppText weight="500" style={{ fontSize: 15 }}>
             Editar
           </AppText>
@@ -752,7 +751,7 @@ function EvalRow({ item, materia, onPress }: { item: DemoEvaluacion; materia: De
           justifyContent: "center",
         }}
       >
-        {hecho ? <Ionicons name="checkmark" size={13} color={colors.bg} /> : null}
+        {hecho ? <AppIcon name="checkmark" size={13} color={colors.bg} /> : null}
       </View>
       <View style={{ flex: 1, gap: 3 }}>
         <AppText weight="500" numberOfLines={1} style={{ fontSize: 15, color: hecho ? colors.textTertiary : colors.text, textDecorationLine: hecho ? "line-through" : "none" }}>

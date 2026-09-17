@@ -1,3 +1,4 @@
+export { AppIcon, type AppIconName } from "./AppIcon";
 export { AppText } from "./AppText";
 export { Avatar } from "./Avatar";
 export { BackButton } from "./BackButton";

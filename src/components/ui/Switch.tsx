@@ -27,7 +27,12 @@ export function Switch({ value, onValueChange }: Props) {
   const tint = value ? colors.accent : "rgba(255,255,255,0.2)";
 
   return (
-    <PressableScale scaleTo={0.94} onPress={() => onValueChange?.(!value)}>
+    <PressableScale
+      scaleTo={0.94}
+      onPress={() => onValueChange?.(!value)}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value }}
+    >
       <Animated.View
         style={{
           width: WIDTH,

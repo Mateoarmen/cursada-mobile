@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, tone } from "@/theme/tokens";
-import { AppText, BackButton, PressableScale, ProgressRing } from "@/components/ui";
+import { AppIcon, AppText, BackButton, PressableScale, ProgressRing } from "@/components/ui";
 import { AsistenciaRow } from "@/components/AsistenciaRow";
 import { demoMaterias } from "@/data/demoContent";
 import {
@@ -170,7 +169,7 @@ export default function AsistenciaScreen() {
                 onPress={() => setFecha((f) => addDias(f, -1))}
                 style={{ width: 30, height: 30, borderRadius: radii.sm, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }}
               >
-                <Ionicons name="chevron-back" size={16} color={colors.text} />
+                <AppIcon name="chevron-back" size={16} color={colors.text} />
               </PressableScale>
               <PressableScale
                 scaleTo={0.9}
@@ -178,7 +177,7 @@ export default function AsistenciaScreen() {
                 onPress={() => setFecha((f) => addDias(f, 1))}
                 style={{ width: 30, height: 30, borderRadius: radii.sm, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center", opacity: esHoy ? 0.35 : 1 }}
               >
-                <Ionicons name="chevron-forward" size={16} color={colors.text} />
+                <AppIcon name="chevron-forward" size={16} color={colors.text} />
               </PressableScale>
             </View>
           </View>

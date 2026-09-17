@@ -2,9 +2,8 @@ import { useCallback, useMemo, useState } from "react";
 import { Alert, ScrollView, TextInput, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, type EstadoMateria, type MateriaColorId, type Tone } from "@/theme/tokens";
-import { AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing } from "@/components/ui";
+import { AppIcon, AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { today } from "@/lib/agenda";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
@@ -378,7 +377,7 @@ export default function ProgresoScreen() {
                     </AppText>
                     <AppText style={{ fontSize: 12, color: colors.textFaint }}>{s.aprobadas} aprobadas · sin nota cargada</AppText>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+                  <AppIcon name="chevron-forward" size={18} color={colors.textFaint} />
                 </PressableScale>
               ))}
             </Card>
@@ -475,7 +474,7 @@ export default function ProgresoScreen() {
               gap: spacing.md,
             }}
           >
-            <Ionicons name="alert-circle-outline" size={20} color={colors.warningText} />
+            <AppIcon name="alert-circle-outline" size={20} color={colors.warningText} />
             <AppText style={{ fontSize: 13, color: colors.warningText, flex: 1 }}>
               Tenés {aprobadasSinNota.length} {aprobadasSinNota.length === 1 ? "materia aprobada sin nota cargada" : "materias aprobadas sin nota cargada"}.
             </AppText>

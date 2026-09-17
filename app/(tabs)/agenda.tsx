@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { router } from "expo-router";
 import { Alert, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { colors, materiaColors, radii, spacing, tone, type Tone } from "@/theme/tokens";
-import { AppText, BottomSheet, Fab, Pill, PressableScale, PrimaryButton } from "@/components/ui";
-import { demoAgenda, type DemoAgendaItem } from "@/data/demoContent";
+import { AppIcon, AppText, BottomSheet, Fab, Pill, PressableScale, PrimaryButton } from "@/components/ui";
+import type { DemoAgendaItem } from "@/data/demoContent";
 import { materiaComputadaToRow } from "@/lib/materias";
 import { useAgenda } from "@/hooks/useAgenda";
+import { usePersonal } from "@/hooks/usePersonal";
 import {
   agendaBadgeInfo,
   diffDias,
@@ -106,7 +106,7 @@ function AgendaRow({
           opacity: esMateria ? 1 : 0.4,
         }}
       >
-        {item.hecho ? <Ionicons name="checkmark" size={13} color={colors.bg} /> : null}
+        {item.hecho ? <AppIcon name="checkmark" size={13} color={colors.bg} /> : null}
       </PressableScale>
 
       <View style={{ flex: 1, gap: 3 }}>
@@ -228,11 +228,10 @@ export default function AgendaScreen() {
 
   // Ítems "materia" (evaluación/tarea) salen de la tabla real `agenda`, sin
   // fallback a datos de muestra (mismo criterio que Detalle de materia).
-  // Los eventos "personales" no viven en `agenda` (van a una tabla aparte,
-  // `personal`, fuera de alcance de esta pasada) — siguen siendo sólo
-  // locales, con datos de muestra como punto de partida.
-  const [personalItems, setPersonalItems] = useState<DemoAgendaItem[]>(() => demoAgenda.filter((i) => i.kind === "personal"));
-  const items = useMemo(() => [...agenda.items, ...personalItems], [agenda.items, personalItems]);
+  // Los eventos "personales" salen de la tabla real `personal` (misma tabla
+  // que ya lee el hero "Lo próximo" de Inicio).
+  const personal = usePersonal();
+  const items = useMemo(() => [...agenda.items, ...personal.items], [agenda.items, personal.items]);
 
   const [filtroKind, setFiltroKind] = useState<"" | "evaluacion" | "tarea">("");
   const [filtroMateriaId, setFiltroMateriaId] = useState("");
@@ -303,8 +302,9 @@ export default function AgendaScreen() {
   };
 
   const eliminarItem = async (id: string) => {
-    if (personalItems.some((p) => p.id === id)) {
-      setPersonalItems((prev) => prev.filter((p) => p.id !== id));
+    if (personal.items.some((p) => p.id === id)) {
+      const ok = await personal.eliminar(id);
+      if (!ok) avisarError("No se pudo eliminar");
       return;
     }
     const ok = await agenda.eliminar(id);
@@ -325,16 +325,11 @@ export default function AgendaScreen() {
   const confirmarCrear = async () => {
     if (!crearModo || !creTitulo.trim()) return;
     if (crearModo.kind === "personal") {
-      const nuevo: DemoAgendaItem = {
-        id: `local-${Date.now()}`,
-        kind: "personal",
-        tipo: "Personal",
-        titulo: creTitulo.trim(),
-        fecha: isoToday(),
-        hecho: false,
-        todoElDia: creTodoElDia,
-      };
-      setPersonalItems((prev) => [...prev, nuevo]);
+      const ok = await personal.crear({ titulo: creTitulo.trim(), fecha: isoToday(), todoElDia: creTodoElDia });
+      if (!ok) {
+        avisarError("No se pudo crear");
+        return;
+      }
       setCrearModo(null);
       return;
     }
@@ -384,7 +379,7 @@ export default function AgendaScreen() {
             gap: spacing.sm,
           }}
         >
-          <Ionicons name="search" size={15} color={colors.textFaint} />
+          <AppIcon name="search" size={15} color={colors.textFaint} />
           <TextInput
             value={query}
             onChangeText={setQuery}
@@ -426,7 +421,7 @@ export default function AgendaScreen() {
               <AppText weight="500" numberOfLines={1} style={{ fontSize: 13, color: colors.textSecondary, flexShrink: 1 }}>
                 {materiaSeleccionLabel}
               </AppText>
-              <Ionicons name="chevron-down" size={14} color={colors.textFaint} />
+              <AppIcon name="chevron-down" size={14} color={colors.textFaint} />
             </View>
           </PressableScale>
           <PressableScale scaleTo={0.98} onPress={() => setEstadoSheetOpen(true)} style={{ flex: 1 }}>
@@ -444,7 +439,7 @@ export default function AgendaScreen() {
               <AppText weight="500" numberOfLines={1} style={{ fontSize: 13, color: colors.textSecondary, flexShrink: 1 }}>
                 {estadoSeleccionLabel}
               </AppText>
-              <Ionicons name="chevron-down" size={14} color={colors.textFaint} />
+              <AppIcon name="chevron-down" size={14} color={colors.textFaint} />
             </View>
           </PressableScale>
         </View>
@@ -476,7 +471,7 @@ export default function AgendaScreen() {
               <AppText mono style={{ fontSize: 11, color: colors.textFaint }}>
                 {completadas.length}
               </AppText>
-              <Ionicons name={completadasAbiertas ? "chevron-up" : "chevron-down"} size={13} color={colors.textFaint} />
+              <AppIcon name={completadasAbiertas ? "chevron-up" : "chevron-down"} size={13} color={colors.textFaint} />
             </PressableScale>
             {completadasAbiertas ? (
               <View style={{ gap: spacing.sm }}>
@@ -520,7 +515,7 @@ export default function AgendaScreen() {
           <AppText weight={filtroMateriaId === "" ? "600" : "400"} style={{ fontSize: 15 }}>
             Todas las materias
           </AppText>
-          {filtroMateriaId === "" ? <Ionicons name="checkmark" size={18} color={colors.accent} /> : null}
+          {filtroMateriaId === "" ? <AppIcon name="checkmark" size={18} color={colors.accent} /> : null}
         </PressableScale>
         {materiasRows.map((m) => (
           <PressableScale
@@ -543,7 +538,7 @@ export default function AgendaScreen() {
             <AppText weight={filtroMateriaId === m.id ? "600" : "400"} style={{ fontSize: 15, flex: 1 }} numberOfLines={1}>
               {m.nombre}
             </AppText>
-            {filtroMateriaId === m.id ? <Ionicons name="checkmark" size={18} color={colors.accent} /> : null}
+            {filtroMateriaId === m.id ? <AppIcon name="checkmark" size={18} color={colors.accent} /> : null}
           </PressableScale>
         ))}
       </BottomSheet>
@@ -573,7 +568,7 @@ export default function AgendaScreen() {
             <AppText weight={filtroEstado === o.value ? "600" : "400"} style={{ fontSize: 15 }}>
               {o.label}
             </AppText>
-            {filtroEstado === o.value ? <Ionicons name="checkmark" size={18} color={colors.accent} /> : null}
+            {filtroEstado === o.value ? <AppIcon name="checkmark" size={18} color={colors.accent} /> : null}
           </PressableScale>
         ))}
       </BottomSheet>
@@ -611,7 +606,7 @@ export default function AgendaScreen() {
             }}
           >
             <View style={{ width: 32, height: 32, borderRadius: radii.sm, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }}>
-              <Ionicons name={opt.icon} size={16} color={colors.text} />
+              <AppIcon name={opt.icon} size={16} color={colors.text} />
             </View>
             <AppText weight="500" style={{ fontSize: 15 }}>
               {opt.label}
@@ -714,7 +709,7 @@ export default function AgendaScreen() {
             }}
             style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md }}
           >
-            <Ionicons name={actionItem?.hecho ? "arrow-undo-outline" : "checkmark-circle-outline"} size={18} color={colors.text} />
+            <AppIcon name={actionItem?.hecho ? "arrow-undo-outline" : "checkmark-circle-outline"} size={18} color={colors.text} />
             <AppText weight="500" style={{ fontSize: 15 }}>
               {actionItem?.hecho ? "Marcar como pendiente" : actionItem?.itemKind === "evaluacion" ? "Marcar como rendida" : "Marcar como entregada"}
             </AppText>
@@ -730,7 +725,7 @@ export default function AgendaScreen() {
             }}
             style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderFaint }}
           >
-            <Ionicons name="create-outline" size={18} color={colors.text} />
+            <AppIcon name="create-outline" size={18} color={colors.text} />
             <AppText weight="500" style={{ fontSize: 15 }}>
               Asignar nota
             </AppText>
@@ -746,7 +741,7 @@ export default function AgendaScreen() {
             }}
             style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderFaint }}
           >
-            <Ionicons name="folder-outline" size={18} color={colors.text} />
+            <AppIcon name="folder-outline" size={18} color={colors.text} />
             <AppText weight="500" style={{ fontSize: 15 }}>
               Ver materia
             </AppText>
@@ -766,7 +761,7 @@ export default function AgendaScreen() {
           }}
           style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderFaint }}
         >
-          <Ionicons name="trash-outline" size={18} color={colors.dangerText} />
+          <AppIcon name="trash-outline" size={18} color={colors.dangerText} />
           <AppText weight="500" style={{ fontSize: 15, color: colors.dangerText }}>
             Eliminar
           </AppText>

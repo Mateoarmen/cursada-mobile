@@ -15,7 +15,8 @@ export function Pill({ label, color = colors.text, background = colors.surfaceSo
     <View
       style={[
         {
-          height: 24,
+          minHeight: 24,
+          paddingVertical: 3,
           paddingHorizontal: 11,
           borderRadius: radii.round,
           backgroundColor: background,

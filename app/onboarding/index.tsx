@@ -2,10 +2,9 @@ import { useEffect } from "react";
 import { router } from "expo-router";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
 import { colors, radii, spacing } from "@/theme/tokens";
-import { AppText, BrandMark, CtaGlow, PrimaryButton } from "@/components/ui";
+import { AppIcon, AppText, BrandMark, CtaGlow, PrimaryButton } from "@/components/ui";
 
 const PASOS = [
   { icon: "book-outline" as const, texto: "Cargá tus materias con horario, salón y nota de aprobación." },
@@ -51,7 +50,7 @@ export default function OnboardingIndex() {
                   {i + 1}
                 </AppText>
               </View>
-              <Ionicons name={p.icon} size={16} color={colors.textTertiary} />
+              <AppIcon name={p.icon} size={16} color={colors.textTertiary} />
               <AppText style={{ fontSize: 14, color: colors.textBody, flex: 1, lineHeight: 19 }}>{p.texto}</AppText>
             </View>
           ))}

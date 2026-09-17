@@ -1,14 +1,13 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
-import { ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Platform, ScrollView, View } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
 import { useSession } from "@/hooks/useSession";
 import { supabase } from "@/lib/supabase";
 import type { Materia, Personal, Semestre } from "@/types/database";
-import { colors, materiaColors, radii, spacing, tone, type MateriaColorId, type Tone } from "@/theme/tokens";
-import { AppText, Avatar, Pill, PressableScale, PrimaryButton, ProgressRing } from "@/components/ui";
+import { colors, materiaColors, radii, spacing, tabBar, tone, type MateriaColorId, type Tone } from "@/theme/tokens";
+import { AppIcon, AppText, Avatar, Pill, PressableScale, PrimaryButton, ProgressRing, type AppIconName } from "@/components/ui";
 import { computeKpis, computeMateria, computeMaterias, computeProgresoSemestreActivo, formatValor, unidad } from "@/lib/materias";
 import { getSemestreActivoId, semestresOrdenados } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
@@ -27,7 +26,17 @@ const TONE_COLOR: Record<Tone, string> = {
   neutral: colors.textTertiary,
 };
 
+// Evita refetch de red completo si se vuelve a esta tab dentro de esta
+// ventana (p.ej. Inicio → Materias → Inicio en pocos segundos); una vuelta
+// real después de editar algo en otra pantalla sigue trayendo datos frescos.
+const FOCUS_REFETCH_MIN_INTERVAL_MS = 5000;
+
 export default function InicioScreen() {
+  const insets = useSafeAreaInsets();
+  // Espacio real de la tab bar flotante (altura + gap inferior + su propio
+  // margen respecto al home indicator) en vez de un padding fijo adivinado.
+  const tabBarClearance =
+    insets.bottom + (Platform.OS === "ios" ? tabBar.bottomGapIOS : tabBar.bottomGapOther) + tabBar.height + spacing.lg;
   const { session } = useSession();
   const email = session?.user?.email ?? "";
   const nombre = email ? email.split("@")[0] : "";
@@ -45,9 +54,13 @@ export default function InicioScreen() {
   // eventos personales es una pantalla aparte, fuera de alcance acá.
   const [personalAll, setPersonalAll] = useState<Personal[] | null>(null);
   const agenda = useAgenda();
+  const lastFetchedAtRef = useRef(0);
 
   useFocusEffect(
     useCallback(() => {
+      const now = Date.now();
+      if (now - lastFetchedAtRef.current < FOCUS_REFETCH_MIN_INTERVAL_MS) return;
+
       let cancelado = false;
       (async () => {
         const [{ data: materias }, { data: personal }, sems, id] = await Promise.all([
@@ -57,6 +70,7 @@ export default function InicioScreen() {
           getSemestreActivoId(),
         ]);
         if (cancelado) return;
+        lastFetchedAtRef.current = Date.now();
         setMateriasAll(materias ?? []);
         setPersonalAll(personal ?? []);
         setSemestres(sems);
@@ -136,7 +150,7 @@ export default function InicioScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.xs, paddingBottom: 120, gap: spacing.xl }}
+        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.xs, paddingBottom: tabBarClearance, gap: spacing.xl }}
         showsVerticalScrollIndicator={false}
       >
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md }}>
@@ -144,11 +158,11 @@ export default function InicioScreen() {
             <AppText weight="600" style={{ fontSize: 12, letterSpacing: 0.6, textTransform: "uppercase", color: colors.textFaint }}>
               {fechaLabel}
             </AppText>
-            <AppText weight="700" style={{ fontSize: 29, letterSpacing: -0.6, lineHeight: 32 }}>
+            <AppText weight="700" style={{ fontSize: 29, letterSpacing: -0.6, lineHeight: 36 }}>
               Hola{nombre ? `, ${nombre}` : ""}
             </AppText>
           </View>
-          <PressableScale scaleTo={0.94} onPress={() => router.push("/perfil")}>
+          <PressableScale scaleTo={0.94} onPress={() => router.push("/perfil")} accessibilityLabel="Abrir perfil">
             <Avatar initial={initial} />
           </PressableScale>
         </View>
@@ -178,7 +192,7 @@ export default function InicioScreen() {
                 )}
               </View>
               <View style={{ gap: spacing.xs }}>
-                <AppText weight="700" style={{ fontSize: 23, letterSpacing: -0.4, lineHeight: 26 }}>
+                <AppText weight="700" style={{ fontSize: 23, letterSpacing: -0.4, lineHeight: 29 }}>
                   {heroItem.item.titulo}
                 </AppText>
                 <AppText style={{ fontSize: 14, color: colors.textSecondary }}>{heroMeta}</AppText>
@@ -206,17 +220,17 @@ export default function InicioScreen() {
                   <PrimaryButton
                     label="Abrir materia"
                     flex
-                    style={{ height: 40 }}
+                    style={{ minHeight: 40 }}
                     onPress={() => heroMateriaRaw && router.push(`/materia/${heroMateriaRaw.id}`)}
                   />
                 ) : (
-                  <PrimaryButton label="Ver en agenda" flex style={{ height: 40 }} onPress={() => router.push("/(tabs)/agenda")} />
+                  <PrimaryButton label="Ver en agenda" flex style={{ minHeight: 40 }} onPress={() => router.push("/(tabs)/agenda")} />
                 )}
                 {heroItem.tipo === "materia" ? (
                   <PrimaryButton
                     label="Ver en agenda"
                     variant="ghost"
-                    style={{ height: 40, paddingHorizontal: spacing.lg }}
+                    style={{ minHeight: 40, paddingHorizontal: spacing.lg }}
                     onPress={() => router.push("/(tabs)/agenda")}
                   />
                 ) : null}
@@ -259,7 +273,10 @@ export default function InicioScreen() {
           <View style={{ flexDirection: "row", gap: spacing.smd }}>
             <AccesoButton icon="folder-outline" label="Materia" onPress={() => router.push("/(tabs)/materias")} />
             <AccesoButton icon="checkmark-done-outline" label={"Tarea o\nevaluación"} onPress={() => router.push("/(tabs)/agenda")} />
-            <AccesoButton icon="calendar-outline" label={"Evento\npersonal"} onPress={() => {}} />
+            {/* Crear evento personal desde acá queda fuera de alcance por
+                ahora (ver fetch de sólo-lectura de `personal` más arriba);
+                se deshabilita en vez de simular una acción que no hace nada. */}
+            <AccesoButton icon="calendar-outline" label={"Evento\npersonal"} disabled disabledHint="Pronto" />
             <AccesoButton icon="checkbox-outline" label="Asistencia" onPress={() => router.push("/asistencia")} />
           </View>
         </View>
@@ -272,9 +289,15 @@ export default function InicioScreen() {
             <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
               {proximos?.titulo ?? "Próximos 7 días"}
             </AppText>
-            <AppText weight="500" style={{ fontSize: 14, color: colors.accent }} onPress={() => router.push("/(tabs)/agenda")}>
-              Ver agenda
-            </AppText>
+            <PressableScale
+              onPress={() => router.push("/(tabs)/agenda")}
+              hitSlop={8}
+              style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.xs, marginVertical: -spacing.sm, marginHorizontal: -spacing.xs }}
+            >
+              <AppText weight="500" style={{ fontSize: 14, color: colors.accent }}>
+                Ver agenda
+              </AppText>
+            </PressableScale>
           </View>
           {proximos && !proximosDiasRows.length ? (
             <AppText style={{ fontSize: 13, color: colors.textTertiary, paddingVertical: spacing.md }}>
@@ -317,6 +340,7 @@ export default function InicioScreen() {
                   key={m.raw.id}
                   scaleTo={0.98}
                   onPress={() => router.push(`/materia/${m.raw.id}`)}
+                  accessibilityLabel={`${m.raw.nombre}, ${m.riesgoTxt}`}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
@@ -342,7 +366,7 @@ export default function InicioScreen() {
                     </AppText>
                     <AppText style={{ fontSize: 13, color: TONE_COLOR[m.tone] }}>{m.riesgoTxt}</AppText>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+                  <AppIcon name="chevron-forward" size={18} color={colors.textFaint} />
                 </PressableScale>
               ))}
             </View>
@@ -374,6 +398,7 @@ export default function InicioScreen() {
             <PressableScale
               scaleTo={0.98}
               onPress={() => router.push("/progreso")}
+              accessibilityLabel="Ver progreso del semestre"
               style={{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.lg, flexDirection: "row", gap: spacing.xl, alignItems: "center", flexWrap: "wrap" }}
             >
               <ProgressRing
@@ -417,19 +442,25 @@ function KpiCard({
   sub,
   tone = "neutral",
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: AppIconName;
   label: string;
   valor: string;
   sub: string;
   tone?: Tone;
 }) {
   return (
-    <View style={{ flexBasis: "47%", flexGrow: 1, backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm }}>
+    <View
+      accessible
+      accessibilityLabel={`${label}: ${valor}, ${sub}`}
+      // flexGrow:0 en vez de 1 — con 3 tarjetas visibles (proximaEvaluacion
+      // oculta) el último ítem de la fila no debe estirarse a lo ancho.
+      style={{ flexBasis: "47%", flexGrow: 0, backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm }}
+    >
       <View style={{ width: 30, height: 30, borderRadius: radii.sm, backgroundColor: colors.accentSofter, alignItems: "center", justifyContent: "center" }}>
-        <Ionicons name={icon} size={16} color={colors.accent} />
+        <AppIcon name={icon} size={16} color={colors.accent} />
       </View>
       <View style={{ gap: 2 }}>
-        <AppText mono weight="600" style={{ fontSize: 21, letterSpacing: -0.4, lineHeight: 24 }}>
+        <AppText mono weight="600" style={{ fontSize: 21, letterSpacing: -0.4, lineHeight: 27 }}>
           {valor}
         </AppText>
         <AppText style={{ fontSize: 12, color: colors.textFaint }}>{label}</AppText>
@@ -445,23 +476,44 @@ function AccesoButton({
   icon,
   label,
   onPress,
+  disabled,
+  disabledHint,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: AppIconName;
   label: string;
-  onPress: () => void;
+  onPress?: () => void;
+  disabled?: boolean;
+  disabledHint?: string;
 }) {
+  const flatLabel = label.replace("\n", " ");
   return (
     <PressableScale
       scaleTo={0.96}
       onPress={onPress}
-      style={{ flex: 1, backgroundColor: colors.surface, borderRadius: radii.md, paddingVertical: spacing.md, alignItems: "center", gap: spacing.xs }}
+      disabled={disabled}
+      accessibilityLabel={disabled && disabledHint ? `${flatLabel} (${disabledHint})` : flatLabel}
+      accessibilityState={{ disabled: !!disabled }}
+      style={{
+        flex: 1,
+        backgroundColor: colors.surface,
+        borderRadius: radii.md,
+        paddingVertical: spacing.md,
+        alignItems: "center",
+        gap: spacing.xs,
+        opacity: disabled ? 0.45 : 1,
+      }}
     >
       <View style={{ width: 34, height: 34, borderRadius: radii.sm, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }}>
-        <Ionicons name={icon} size={17} color={colors.text} />
+        <AppIcon name={icon} size={17} color={colors.text} />
       </View>
-      <AppText weight="500" style={{ fontSize: 11, textAlign: "center", color: colors.textSecondary, lineHeight: 13 }}>
+      <AppText weight="500" style={{ fontSize: 11, textAlign: "center", color: colors.textSecondary, lineHeight: 15 }}>
         {label}
       </AppText>
+      {disabled && disabledHint ? (
+        <AppText weight="600" style={{ fontSize: 9.5, textAlign: "center", color: colors.textFaint, textTransform: "uppercase", letterSpacing: 0.4 }}>
+          {disabledHint}
+        </AppText>
+      ) : null}
     </PressableScale>
   );
 }

@@ -1,11 +1,10 @@
 import { router, Tabs, usePathname } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 import { Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors, radii } from "@/theme/tokens";
-import { AppText, PressableScale } from "@/components/ui";
+import { colors, radii, tabBar } from "@/theme/tokens";
+import { AppIcon, AppText, PressableScale } from "@/components/ui";
 import { AsistenciaDiarioGate } from "@/components/AsistenciaDiarioGate";
 
 // Tabbar flotante "vidrio líquido" — implementada 100% a mano en vez de vía
@@ -47,10 +46,10 @@ function FloatingTabBar() {
     <View
       style={{
         position: "absolute",
-        left: 20,
-        right: 20,
-        bottom: insets.bottom + (Platform.OS === "ios" ? 8 : 16),
-        height: 54,
+        left: tabBar.sideMargin,
+        right: tabBar.sideMargin,
+        bottom: insets.bottom + (Platform.OS === "ios" ? tabBar.bottomGapIOS : tabBar.bottomGapOther),
+        height: tabBar.height,
         borderRadius: radii.round,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 12 },
@@ -73,8 +72,11 @@ function FloatingTabBar() {
               scaleTo={0.94}
               onPress={() => router.navigate(tab.route)}
               style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 2 }}
+              accessibilityRole="tab"
+              accessibilityLabel={tab.label}
+              accessibilityState={{ selected: focused }}
             >
-              <Ionicons name={focused ? tab.iconActive : tab.icon} size={19} color={color} />
+              <AppIcon name={focused ? tab.iconActive : tab.icon} size={19} color={color} weight={focused ? "semibold" : "regular"} />
               <AppText weight="600" style={{ fontSize: 10, color }}>
                 {tab.label}
               </AppText>
