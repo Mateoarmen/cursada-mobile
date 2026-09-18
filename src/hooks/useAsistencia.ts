@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Asistencia, AsistenciaEstadoDB } from "@/types/database";
 
@@ -63,10 +63,19 @@ export function useAsistencia() {
     return true;
   }, []);
 
+  // Memoizado por referencia — sin esto, un nuevo objeto en cada render
+  // rompe cualquier useEffect/useMemo que dependa de `registros` (ver loop
+  // infinito en AsistenciaDiarioGate: recalcular() dispara setCola en cada
+  // render porque `registros` "cambiaba" siempre, aunque `rows` no).
+  const registros = useMemo(
+    () => Object.fromEntries((rows ?? []).map((r) => [`${r.fecha}|${r.materia_id}`, r.estado])),
+    [rows]
+  );
+
   return {
     rows,
     error,
-    registros: Object.fromEntries((rows ?? []).map((r) => [`${r.fecha}|${r.materia_id}`, r.estado])),
+    registros,
     marcar,
     desmarcar,
     listo: rows !== null,
