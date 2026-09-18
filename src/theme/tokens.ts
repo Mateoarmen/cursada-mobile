@@ -2,6 +2,8 @@
 // Fondo #0F1116, superficie #191C22, acento #2C7BFF → #0A63F0.
 // Instrument Sans para texto, JetBrains Mono para cifras y horas.
 
+import { Easing } from "react-native";
+
 export const colors = {
   bg: "#0F1116",
   surface: "#191C22",
@@ -156,14 +158,13 @@ export const fonts = {
   mono: "InstrumentSans_600SemiBold",
 } as const;
 
+// Sombra "ambient" — reservada, igual que en la web (--c-shadow:none en
+// tema oscuro), a los tres lugares donde el mockup SÍ la muestra: FAB, día
+// activo de Horario, y modales. Las tarjetas de contenido son opacas y
+// CHATAS a propósito (ver design.md del repo cursada-design-system,
+// sección "Pro Edition") — no agregar una entrada tipo `card` acá, es
+// justo lo que esa dirección visual prohíbe.
 export const shadows = {
-  card: {
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.35,
-    shadowRadius: 24,
-    elevation: 6,
-  },
   fab: {
     shadowColor: colors.accent,
     shadowOffset: { width: 0, height: 10 },
@@ -171,4 +172,39 @@ export const shadows = {
     shadowRadius: 20,
     elevation: 8,
   },
+  // Segundo (y último) lugar sancionado además del FAB — la celda del día
+  // activo en Horario (ver html[data-theme="oscuro"] .horario-day.is-on en
+  // styles.css). No agregar una entrada `card` acá, ver comentario arriba.
+  horarioDiaActivo: {
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    elevation: 6,
+  },
+} as const;
+
+// Curvas de easing del sistema web (design.md/styles.css), portadas a RN.
+// Mismos cuatro nombres, mismo criterio de uso — "algo con más punch que
+// el ease-out plano de RN por default":
+// - out: algo que entra/aparece.
+// - inOut: algo que se mueve en pantalla.
+// - drawer: cajones/sheets estilo iOS.
+// spring (rebote/overshoot) no se porta como bezier: se implementa con
+// Animated.spring (ver CtaGlow.tsx/Switch.tsx) — más natural en RN que
+// simular overshoot con Easing.bezier — y sigue reservado a momentos de
+// primer uso, nunca a botones de acción repetida (Guardar, + Nuevo, etc).
+export const easing = {
+  out: Easing.bezier(0.23, 1, 0.32, 1),
+  inOut: Easing.bezier(0.77, 0, 0.175, 1),
+  drawer: Easing.bezier(0.32, 0.72, 0, 1),
+} as const;
+
+// Tabla de duraciones (ver animate.md): feedback inmediato, cambio de
+// estado rutinario, transición de layout/overlay, entrada autoral única.
+export const motionDuration = {
+  feedback: 120,
+  routine: 220,
+  layout: 320,
+  focal: 600,
 } as const;

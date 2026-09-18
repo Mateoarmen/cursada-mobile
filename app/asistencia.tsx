@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, radii, spacing, tone } from "@/theme/tokens";
-import { AppIcon, AppText, BackButton, PressableScale, ProgressRing } from "@/components/ui";
+import { AppIcon, AppText, BackButton, PressableScale, ProgressRing, Reveal, Spotlight } from "@/components/ui";
 import { AsistenciaRow } from "@/components/AsistenciaRow";
 import { demoMaterias } from "@/data/demoContent";
 import {
@@ -53,10 +53,11 @@ function BarraProgreso({ pct, color }: { pct: number; color: string }) {
 export default function AsistenciaScreen() {
   const [rango, setRango] = useState<AsistenciaRango>("semana");
   const [fecha, setFecha] = useState<Date>(hoy());
-  const { registros, marcar } = useAsistenciaRegistros();
+  const { registros, marcar, listo } = useAsistenciaRegistros();
 
-  const general = useMemo(() => statsGeneral(demoMaterias, rango), [rango]);
-  const porMateria = useMemo(() => statsPorMateria(demoMaterias, rango), [rango]);
+  const hoyFija = useMemo(() => hoy(), []);
+  const general = useMemo(() => statsGeneral(demoMaterias, registros, rango, hoyFija), [rango, registros, hoyFija]);
+  const porMateria = useMemo(() => statsPorMateria(demoMaterias, registros, rango, hoyFija), [rango, registros, hoyFija]);
   const materiasDelDia = useMemo(() => materiasConClaseEnFecha(demoMaterias, fecha), [fecha]);
 
   const toneGeneral = tonePorPct(general.pct);
@@ -65,17 +66,22 @@ export default function AsistenciaScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
+      <Spotlight height={280} />
       <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
         <BackButton />
-        <AppText weight="600" style={{ fontSize: 16 }}>
+        <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
           Asistencia
         </AppText>
       </View>
 
+      {!listo ? (
+        <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando…</AppText>
+      ) : (
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxxl, gap: spacing.xl }}
         showsVerticalScrollIndicator={false}
       >
+      <Reveal style={{ gap: spacing.xl }}>
         {/* Toggle de rango */}
         <View style={{ height: 38, borderRadius: radii.sm, backgroundColor: colors.surfaceSofter, padding: 3, flexDirection: "row", gap: 3 }}>
           {RANGOS.map((r) => (
@@ -200,7 +206,9 @@ export default function AsistenciaScreen() {
             )}
           </Card>
         </View>
+      </Reveal>
       </ScrollView>
+      )}
     </SafeAreaView>
   );
 }

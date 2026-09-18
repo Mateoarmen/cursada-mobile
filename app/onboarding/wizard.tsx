@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useSession } from "@/hooks/useSession";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
 import { colors, radii, spacing } from "@/theme/tokens";
-import { AppIcon, AppText, PressableScale, PrimaryButton } from "@/components/ui";
+import { AppIcon, AppText, PressableScale, PrimaryButton, Reveal } from "@/components/ui";
 import {
   aplicarAgenda,
   aplicarDictados,
@@ -368,7 +368,11 @@ export default function OnboardingWizardScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
-      <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.sm, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+      <View
+        style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.sm, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+        accessible
+        accessibilityLabel={`Paso ${pasoIdx + 1} de ${PASOS.length}: ${TITULOS[paso]}`}
+      >
         <View style={{ flexDirection: "row", gap: 4 }}>
           {PASOS.map((p, i) => (
             <View key={p} style={{ width: 22, height: 4, borderRadius: 2, backgroundColor: i <= pasoIdx ? colors.accent : colors.surfaceSoft }} />
@@ -382,6 +386,13 @@ export default function OnboardingWizardScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: spacing.xl, gap: spacing.lg, paddingBottom: 140 }}>
+        {/* key={paso} — mismo criterio que app/materia/nueva.tsx: un
+            momento autoral por transición de paso, no una entrada por
+            campo. Sin Spotlight acá: a diferencia de las pantallas de
+            "mirar" (Inicio/Agenda/Horario), este es un flujo de carga de
+            datos denso en chips de selección — el wash compite con el
+            contraste que esos chips ya necesitan. */}
+        <Reveal key={paso} style={{ gap: spacing.lg }}>
         <AppText weight="700" style={{ fontSize: 22, letterSpacing: -0.3 }}>
           {TITULOS[paso]}
         </AppText>
@@ -829,7 +840,25 @@ export default function OnboardingWizardScreen() {
           </View>
         ) : null}
 
-        {error ? <AppText style={{ fontSize: 13, color: colors.dangerText, textAlign: "center" }}>{error}</AppText> : null}
+        </Reveal>
+
+        {error ? (
+          <View
+            accessible
+            accessibilityLabel={error}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: spacing.md,
+              backgroundColor: colors.dangerSofter,
+              borderRadius: radii.md,
+              padding: spacing.lg,
+            }}
+          >
+            <AppIcon name="alert-circle-outline" size={18} color={colors.dangerText} />
+            <AppText style={{ flex: 1, fontSize: 13, color: colors.dangerText }}>{error}</AppText>
+          </View>
+        ) : null}
       </ScrollView>
 
       <View

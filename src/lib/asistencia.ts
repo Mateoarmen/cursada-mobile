@@ -1,11 +1,14 @@
 // Puerto de la lógica de Asistencia de runtime.js (web) — statsAsistencia,
 // statsAsistenciaPorMateria, materiasAsistenciaParaFecha — sin DOM. El
 // schema real de `asistencias` vive en Supabase (mismo backend que la web,
-// ver runtime.js) pero el mobile todavía no lo lee: como el resto de las
-// pantallas de métricas (ver demoContent.ts), esto opera sobre
-// `DemoMateria.asistencia`, cargado a mano por rango. Reemplazar por fetch
-// real una vez el schema mobile tenga esa tabla tipada (database.ts).
-import type { DemoAsistenciaRango, DemoMateria } from "@/data/demoContent";
+// ver runtime.js) pero el mobile todavía no lo lee: la LISTA de materias y
+// sus bloques siguen viniendo de `demoMaterias` (ver TODO más amplio en
+// demoContent.ts), pero los NÚMEROS de Resumen/Por materia ya no son el
+// campo `DemoMateria.asistencia` canned — se calculan a partir de los
+// registros reales que el usuario marca en Historial (ver
+// asistenciaStore.ts), para que ambas secciones de la pantalla se hablen
+// entre sí en vez de mostrar dos historias distintas.
+import type { DemoMateria } from "@/data/demoContent";
 import type { Tone } from "@/theme/tokens";
 
 export type AsistenciaRango = "semana" | "mes" | "semestre";
@@ -22,14 +25,38 @@ export const asistenciaEstadoLabel: Record<AsistenciaEstado, string> = {
 
 export type AsistenciaStats = { pct: number | null; presentes: number; total: number };
 
-// % de asistencia = presentes / total, sin materias sin registros en el
-// denominador — mismo criterio que statsAsistencia() en la web.
-export function statsGeneral(materias: DemoMateria[], rango: AsistenciaRango): AsistenciaStats {
-  const rows = materias
-    .map((m) => m.asistencia?.[rango])
-    .filter((r): r is DemoAsistenciaRango => r != null);
-  const presentes = rows.reduce((acc, r) => acc + r.presentes, 0);
-  const total = rows.reduce((acc, r) => acc + r.total, 0);
+// Cantidad de días atrás de "hoy" (inclusive) que cubre cada rango — una
+// ventana móvil en vez de un rango calendario alineado (semana ISO, mes
+// calendario) porque no tenemos fecha de inicio de semestre a mano acá;
+// simple y suficiente para leer una tendencia reciente.
+const RANGO_DIAS: Record<AsistenciaRango, number> = { semana: 7, mes: 30, semestre: 180 };
+
+function diasDelRango(rango: AsistenciaRango, hoy: Date): Date[] {
+  const n = RANGO_DIAS[rango];
+  return Array.from({ length: n }, (_, i) => addDias(hoy, -(n - 1 - i)));
+}
+
+// % de asistencia = presentes / total sobre los registros reales que el
+// usuario marcó en Historial (ver asistenciaStore.ts) — antes leía el
+// campo canned `DemoMateria.asistencia`, que nunca cambiaba sin importar lo
+// que se marcara en Historial (ver critique: las dos secciones de la
+// pantalla contaban historias distintas). Un día sin registro, o marcado
+// "no hubo clase", no entra en el denominador.
+export function statsGeneral(materias: DemoMateria[], registros: Record<string, AsistenciaEstado>, rango: AsistenciaRango, hoy: Date): AsistenciaStats {
+  let presentes = 0;
+  let total = 0;
+  for (const fecha of diasDelRango(rango, hoy)) {
+    const iso = toISODate(fecha);
+    for (const m of materiasConClaseEnFecha(materias, fecha)) {
+      const estado = registros[`${iso}|${m.id}`];
+      if (estado === "asistio") {
+        presentes += 1;
+        total += 1;
+      } else if (estado === "no_asistio") {
+        total += 1;
+      }
+    }
+  }
   return { presentes, total, pct: total ? Math.round((presentes / total) * 100) : null };
 }
 
@@ -37,12 +64,27 @@ export type AsistenciaPorMateria = { materia: DemoMateria } & AsistenciaStats;
 
 // Sólo materias con seguimiento de asistencia (asistencia !== null — las
 // aprobadas/pendientes no lo tienen, igual que en la web una materia que
-// dejó de ser 'cursando' deja de pedirse) y con registros en este rango.
-export function statsPorMateria(materias: DemoMateria[], rango: AsistenciaRango): AsistenciaPorMateria[] {
+// dejó de ser 'cursando' deja de pedirse) y con al menos un registro real
+// en este rango.
+export function statsPorMateria(materias: DemoMateria[], registros: Record<string, AsistenciaEstado>, rango: AsistenciaRango, hoy: Date): AsistenciaPorMateria[] {
+  const acc = new Map<string, { presentes: number; total: number }>();
+  for (const fecha of diasDelRango(rango, hoy)) {
+    const iso = toISODate(fecha);
+    for (const m of materiasConClaseEnFecha(materias, fecha)) {
+      const estado = registros[`${iso}|${m.id}`];
+      if (estado !== "asistio" && estado !== "no_asistio") continue;
+      const cur = acc.get(m.id) ?? { presentes: 0, total: 0 };
+      if (estado === "asistio") cur.presentes += 1;
+      cur.total += 1;
+      acc.set(m.id, cur);
+    }
+  }
   return materias
-    .filter((m) => m.asistencia != null)
-    .map((m) => ({ materia: m, ...(m.asistencia![rango] as DemoAsistenciaRango) }))
-    .filter((x) => x.total > 0);
+    .filter((m) => m.asistencia != null && acc.has(m.id))
+    .map((m) => {
+      const s = acc.get(m.id)!;
+      return { materia: m, presentes: s.presentes, total: s.total, pct: s.total ? Math.round((s.presentes / s.total) * 100) : null };
+    });
 }
 
 // Mismo umbral que TONE en la web: ≥75 éxito, ≥50 aviso, si no peligro.

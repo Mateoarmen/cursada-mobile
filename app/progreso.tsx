@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
-import { Alert, ScrollView, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Animated, ScrollView, TextInput, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, type EstadoMateria, type MateriaColorId, type Tone } from "@/theme/tokens";
-import { AppIcon, AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing } from "@/components/ui";
+import { LinearGradient } from "expo-linear-gradient";
+import { colors, easing, estadoLabel, estadoTone, materiaColors, motionDuration, radii, spacing, tone, type EstadoMateria, type MateriaColorId, type Tone } from "@/theme/tokens";
+import { AppIcon, AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, Reveal, Spotlight } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { today } from "@/lib/agenda";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
@@ -78,38 +79,81 @@ function BarraProgreso({ pct, color }: { pct: number; color: string }) {
   );
 }
 
+// Antes esta barra siempre recibía colors.success sin mirar el valor real
+// (un promedio de 38% se pintaba verde) — el color ahora refleja qué tan
+// lejos está el promedio de aprobar, mismos cortes que el resto del
+// producto usa para "en riesgo".
+function colorPorPromedio(pct: number): string {
+  if (pct >= 70) return colors.success;
+  if (pct >= 40) return colors.warning;
+  return colors.danger;
+}
+
 export default function ProgresoScreen() {
   const { profile } = useOnboardingStatusContext();
   const agenda = useAgenda();
 
   const [materiasAll, setMateriasAll] = useState<Materia[] | null>(null);
   const [semestresAll, setSemestresAll] = useState<Semestre[] | null>(null);
+  const [fetchError, setFetchError] = useState(false);
 
   const [semestreModal, setSemestreModal] = useState<SemestreModalData | null>(null);
+  const [riesgoModalOpen, setRiesgoModalOpen] = useState(false);
   const [notaModal, setNotaModal] = useState<NotaModalData | null>(null);
   const [notaInput, setNotaInput] = useState("");
   const [guardandoNota, setGuardandoNota] = useState(false);
+  const [celebracion, setCelebracion] = useState<{ titulo: string; mensaje: string; promovida: boolean } | null>(null);
 
   const fetchMaterias = useCallback(async () => {
-    const [{ data: materias }, sems] = await Promise.all([supabase.from("materias").select("*"), semestresOrdenados()]);
-    setMateriasAll(materias ?? []);
-    setSemestresAll(sems);
+    try {
+      const [{ data: materias }, sems] = await Promise.all([supabase.from("materias").select("*"), semestresOrdenados()]);
+      setFetchError(false);
+      setMateriasAll(materias ?? []);
+      setSemestresAll(sems);
+    } catch {
+      setFetchError(true);
+    }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       let cancelado = false;
       (async () => {
-        const [{ data: materias }, sems] = await Promise.all([supabase.from("materias").select("*"), semestresOrdenados()]);
-        if (cancelado) return;
-        setMateriasAll(materias ?? []);
-        setSemestresAll(sems);
+        try {
+          const [{ data: materias }, sems] = await Promise.all([supabase.from("materias").select("*"), semestresOrdenados()]);
+          if (cancelado) return;
+          setFetchError(false);
+          setMateriasAll(materias ?? []);
+          setSemestresAll(sems);
+        } catch {
+          if (cancelado) return;
+          setFetchError(true);
+        }
       })();
       return () => {
         cancelado = true;
       };
     }, [])
   );
+
+  // Celebración in-screen para el momento de mayor peak del producto
+  // (aprobar una materia) — antes se entregaba como Alert.alert de sistema,
+  // indistinguible visualmente de un error de guardado (ver critique P1).
+  // motionDuration.focal + spring están reservados justo para esto: un
+  // momento autoral único, no una acción repetida.
+  const celebracionScale = useRef(new Animated.Value(0.92)).current;
+  const celebracionOpacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!celebracion) return;
+    celebracionScale.setValue(0.92);
+    celebracionOpacity.setValue(0);
+    Animated.parallel([
+      Animated.spring(celebracionScale, { toValue: 1, friction: 7, tension: 90, useNativeDriver: true }),
+      Animated.timing(celebracionOpacity, { toValue: 1, duration: motionDuration.focal, easing: easing.out, useNativeDriver: true }),
+    ]).start();
+    const timer = setTimeout(() => setCelebracion(null), 3200);
+    return () => clearTimeout(timer);
+  }, [celebracion, celebracionScale, celebracionOpacity]);
 
   const activeId = useMemo(() => semestresAll?.find((s) => s.activo)?.id ?? null, [semestresAll]);
 
@@ -140,6 +184,18 @@ export default function ProgresoScreen() {
       { label: "En riesgo", value: enRiesgo },
     ];
   }, [progresoActivo]);
+
+  // Detalle detrás del bucket "En riesgo" — antes era un número terminal
+  // sin a dónde ir; ahora abre la lista real de materias (ver critique P1:
+  // Alex no podía llegar de "3 en riesgo" a cuáles son sin salir a Materias
+  // y re-derivarlo a mano).
+  const materiasEnRiesgo = useMemo(() => {
+    if (!progresoActivo) return [];
+    return progresoActivo.materias.filter((m) => m.actual != null && !(m.esc.exoneracion != null && m.actual >= m.esc.exoneracion) && m.actual < m.esc.aprob);
+  }, [progresoActivo]);
+
+  const dataReady = materiasAll !== null && semestresAll !== null && agenda.rows !== null;
+  const showError = !dataReady && fetchError;
 
   const progresoPorSemestre: ProgresoSemestrePunto[] = useMemo(
     () => (materiasAll && agenda.rows && semestresAll ? computeProgresoPorSemestre(semestresAll, materiasAll, agenda.rows) : []),
@@ -264,22 +320,117 @@ export default function ProgresoScreen() {
     setNotaModal(null);
     setNotaInput("");
     await Promise.all([fetchMaterias(), agenda.refetch()]);
-    if (resultado) Alert.alert(resultado.promovida ? "¡Aprobada!" : "Nota cargada", resultado.mensaje);
+    if (resultado) {
+      setCelebracion({ titulo: resultado.promovida ? "¡Aprobada!" : "Nota cargada", mensaje: resultado.mensaje, promovida: resultado.promovida });
+    }
   };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
+      <Spotlight height={280} />
       <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
         <BackButton />
-        <AppText weight="600" style={{ fontSize: 16 }}>
+        <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
           Progreso
         </AppText>
       </View>
 
+      {showError ? (
+        <View
+          accessible
+          accessibilityLabel="No pudimos cargar tu progreso. Revisá tu conexión y volvé a esta pantalla para reintentar."
+          style={{
+            marginHorizontal: spacing.xl,
+            marginBottom: spacing.md,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: spacing.md,
+            backgroundColor: colors.dangerSofter,
+            borderRadius: radii.md,
+            padding: spacing.lg,
+          }}
+        >
+          <AppIcon name="alert-circle-outline" size={18} color={colors.dangerText} />
+          <AppText style={{ flex: 1, fontSize: 13, color: colors.dangerText }}>
+            No pudimos cargar tu progreso. Revisá tu conexión y volvé a esta pantalla para reintentar.
+          </AppText>
+        </View>
+      ) : null}
+
+      {celebracion ? (
+        <PressableScale
+          scaleTo={0.99}
+          onPress={() => setCelebracion(null)}
+          accessibilityLabel={`${celebracion.titulo}. ${celebracion.mensaje}. Tocá para cerrar.`}
+          style={{ marginHorizontal: spacing.xl, marginBottom: spacing.md }}
+        >
+          <Animated.View style={{ opacity: celebracionOpacity, transform: [{ scale: celebracionScale }] }}>
+            <LinearGradient
+              colors={celebracion.promovida ? [colors.success, "rgba(52,199,89,0.15)", "rgba(255,255,255,0.06)"] : [colors.accent, "rgba(44,123,255,0.15)", "rgba(255,255,255,0.06)"]}
+              locations={[0, 0.6, 1]}
+              start={{ x: 0.1, y: 0 }}
+              end={{ x: 0.9, y: 1 }}
+              style={{ borderRadius: radii.xl, padding: 1.5 }}
+            >
+              <View style={{ borderRadius: radii.xl - 1.5, backgroundColor: colors.surfaceRaised, padding: spacing.lg, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+                <AppIcon
+                  name={celebracion.promovida ? "checkmark-circle-outline" : "checkmark"}
+                  size={22}
+                  color={celebracion.promovida ? colors.successText : colors.accentText}
+                />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <AppText weight="700" style={{ fontSize: 15 }}>
+                    {celebracion.titulo}
+                  </AppText>
+                  <AppText style={{ fontSize: 13, color: colors.textSecondary }}>{celebracion.mensaje}</AppText>
+                </View>
+              </View>
+            </LinearGradient>
+          </Animated.View>
+        </PressableScale>
+      ) : null}
+
+      {!dataReady ? (
+        <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando tu progreso…</AppText>
+      ) : (
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxxl, gap: spacing.xl }}
         showsVerticalScrollIndicator={false}
       >
+      <Reveal style={{ gap: spacing.xl }}>
+        {/* Progreso hacia el título — promovida al primer lugar: es el
+            número emocionalmente más cargado de la pantalla ("¿voy a
+            recibirme?") y antes pesaba lo mismo que "Semestres sin
+            promedio" (ver critique P1). Tratamiento hero (gradient-border +
+            surfaceRaised) sólo cuando hay una meta configurada; si no,
+            queda como card simple con el CTA a Perfil. */}
+        <View>
+          <SectionTitle>Progreso hacia el título</SectionTitle>
+          {metaCarrera ? (
+            <LinearGradient
+              colors={[colors.accent, "rgba(44,123,255,0.15)", "rgba(255,255,255,0.06)"]}
+              locations={[0, 0.6, 1]}
+              start={{ x: 0.1, y: 0 }}
+              end={{ x: 0.9, y: 1 }}
+              style={{ borderRadius: radii.xxl, padding: 1.5 }}
+            >
+              <View style={{ borderRadius: radii.xxl - 1.5, backgroundColor: colors.surfaceRaised, padding: spacing.xl, gap: spacing.md }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <AppText style={{ fontSize: 13, color: colors.textSecondary }}>
+                    {materiasAprobadasTotal} / {metaCarrera} materias
+                  </AppText>
+                  <Pill label={`${metaPct}%`} color={colors.successText} background={colors.successSoft} mono />
+                </View>
+                <BarraProgreso pct={metaPct} color={colors.success} />
+              </View>
+            </LinearGradient>
+          ) : (
+            <Card>
+              <AppText style={{ fontSize: 13, color: colors.textTertiary }}>Configurá tu carrera desde Perfil para ver tu progreso hacia el título.</AppText>
+            </Card>
+          )}
+        </View>
+
         {/* Este semestre */}
         {progresoActivo && bucketsEsteSemestre && progresoActivo.materias.length > 0 ? (
           <View>
@@ -318,16 +469,24 @@ export default function ProgresoScreen() {
                 </View>
               </View>
               <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSoft }}>
-                {bucketsEsteSemestre.map((b) => (
-                  <View key={b.label} style={{ alignItems: "center", gap: 2, flex: 1 }}>
-                    <AppText mono weight="700" style={{ fontSize: 18 }}>
-                      {b.value}
-                    </AppText>
-                    <AppText style={{ fontSize: 11, color: colors.textFaint, textAlign: "center" }} numberOfLines={2}>
-                      {b.label}
-                    </AppText>
-                  </View>
-                ))}
+                {bucketsEsteSemestre.map((b) => {
+                  const esRiesgo = b.label === "En riesgo";
+                  const Container = esRiesgo && b.value > 0 ? PressableScale : View;
+                  return (
+                    <Container
+                      key={b.label}
+                      {...(esRiesgo && b.value > 0 ? { scaleTo: 0.95, onPress: () => setRiesgoModalOpen(true), accessibilityLabel: `${b.label}: ${b.value}, ver detalle` } : {})}
+                      style={{ alignItems: "center", gap: 2, flex: 1 }}
+                    >
+                      <AppText mono weight="700" style={{ fontSize: 18, color: esRiesgo && b.value > 0 ? colors.dangerText : colors.text }}>
+                        {b.value}
+                      </AppText>
+                      <AppText style={{ fontSize: 11, color: colors.textFaint, textAlign: "center" }} numberOfLines={2}>
+                        {b.label}
+                      </AppText>
+                    </Container>
+                  );
+                })}
               </View>
             </Card>
           </View>
@@ -349,35 +508,10 @@ export default function ProgresoScreen() {
                       {s.promedio}%
                     </AppText>
                   </View>
-                  <BarraProgreso pct={s.promedio ?? 0} color={colors.success} />
+                  <BarraProgreso pct={s.promedio ?? 0} color={colorPorPromedio(s.promedio ?? 0)} />
                   <AppText style={{ fontSize: 12, color: colors.textFaint }}>
                     {s.aprobadas}/{s.total} aprobadas{s.exoneradas ? ` · ${s.exoneradas} exoneradas` : ""}
                   </AppText>
-                </PressableScale>
-              ))}
-            </Card>
-          </View>
-        ) : null}
-
-        {/* Semestres sin promedio graficable */}
-        {semestresSinPromedio.length > 0 ? (
-          <View>
-            <SectionTitle>Semestres sin promedio</SectionTitle>
-            <Card>
-              {semestresSinPromedio.map((s) => (
-                <PressableScale
-                  key={s.semestre.id}
-                  scaleTo={0.98}
-                  onPress={() => abrirSemestreModal(s)}
-                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
-                >
-                  <View style={{ gap: 2 }}>
-                    <AppText weight="500" style={{ fontSize: 14 }}>
-                      {s.semestre.nombre}
-                    </AppText>
-                    <AppText style={{ fontSize: 12, color: colors.textFaint }}>{s.aprobadas} aprobadas · sin nota cargada</AppText>
-                  </View>
-                  <AppIcon name="chevron-forward" size={18} color={colors.textFaint} />
                 </PressableScale>
               ))}
             </Card>
@@ -417,6 +551,31 @@ export default function ProgresoScreen() {
           </View>
         ) : null}
 
+        {/* Semestres sin promedio graficable */}
+        {semestresSinPromedio.length > 0 ? (
+          <View>
+            <SectionTitle>Semestres sin promedio</SectionTitle>
+            <Card>
+              {semestresSinPromedio.map((s) => (
+                <PressableScale
+                  key={s.semestre.id}
+                  scaleTo={0.98}
+                  onPress={() => abrirSemestreModal(s)}
+                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                >
+                  <View style={{ gap: 2 }}>
+                    <AppText weight="500" style={{ fontSize: 14 }}>
+                      {s.semestre.nombre}
+                    </AppText>
+                    <AppText style={{ fontSize: 12, color: colors.textFaint }}>{s.aprobadas} aprobadas · sin nota cargada</AppText>
+                  </View>
+                  <AppIcon name="chevron-forward" size={18} color={colors.textFaint} />
+                </PressableScale>
+              ))}
+            </Card>
+          </View>
+        ) : null}
+
         {/* Distribución de estado */}
         {distribucion.length > 0 ? (
           <View>
@@ -442,26 +601,6 @@ export default function ProgresoScreen() {
           </View>
         ) : null}
 
-        {/* Progreso hacia el título */}
-        <View>
-          <SectionTitle>Progreso hacia el título</SectionTitle>
-          <Card>
-            {metaCarrera ? (
-              <>
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                  <AppText style={{ fontSize: 13, color: colors.textSecondary }}>
-                    {materiasAprobadasTotal} / {metaCarrera} materias
-                  </AppText>
-                  <Pill label={`${metaPct}%`} color={colors.successText} background={colors.successSoft} mono />
-                </View>
-                <BarraProgreso pct={metaPct} color={colors.success} />
-              </>
-            ) : (
-              <AppText style={{ fontSize: 13, color: colors.textTertiary }}>Configurá tu carrera desde Perfil para ver tu progreso hacia el título.</AppText>
-            )}
-          </Card>
-        </View>
-
         {/* Aviso materias aprobadas sin nota */}
         {aprobadasSinNota.length > 0 ? (
           <View
@@ -480,7 +619,42 @@ export default function ProgresoScreen() {
             </AppText>
           </View>
         ) : null}
+      </Reveal>
       </ScrollView>
+      )}
+
+      {/* Modal: materias en riesgo este semestre */}
+      <BottomSheet visible={riesgoModalOpen} onClose={() => setRiesgoModalOpen(false)}>
+        <View style={{ gap: 2 }}>
+          <AppText weight="700" style={{ fontSize: 18 }}>
+            En riesgo
+          </AppText>
+          <AppText style={{ fontSize: 13, color: colors.textTertiary }}>
+            {materiasEnRiesgo.length} {materiasEnRiesgo.length === 1 ? "materia" : "materias"} por debajo de la nota de aprobación este semestre
+          </AppText>
+        </View>
+        <View style={{ gap: spacing.sm }}>
+          {materiasEnRiesgo.map((m, i) => (
+            <View
+              key={m.raw.id}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: spacing.sm,
+                paddingVertical: spacing.sm,
+                borderTopWidth: i === 0 ? 0 : 1,
+                borderTopColor: colors.borderSoft,
+              }}
+            >
+              <View style={{ width: 8, height: 8, borderRadius: radii.round, backgroundColor: colorDeMateria(m.raw) }} />
+              <AppText style={{ fontSize: 14, flex: 1 }}>{m.raw.nombre}</AppText>
+              <AppText mono weight="600" style={{ fontSize: 13, color: colors.dangerText }}>
+                {formatValor(m.actual ?? 0, m.esc.tipo)}/{formatValor(m.esc.aprob, m.esc.tipo)}
+              </AppText>
+            </View>
+          ))}
+        </View>
+      </BottomSheet>
 
       {/* Modal: materias de un semestre */}
       <BottomSheet visible={semestreModal != null} onClose={() => setSemestreModal(null)}>

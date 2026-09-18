@@ -32,12 +32,15 @@ const SYMBOLS = {
   search: "magnifyingglass",
   checkmark: "checkmark",
   "checkmark-circle-outline": "checkmark.circle",
+  "close-circle-outline": "xmark.circle",
+  "information-circle-outline": "info.circle",
   "arrow-undo-outline": "arrow.uturn.backward",
   "create-outline": "square.and.pencil",
   "trash-outline": "trash",
   "options-outline": "slider.horizontal.3",
   checkbox: "checkmark.square.fill",
   "square-outline": "square",
+  "grid-outline": "square.grid.2x2",
 } as const satisfies Record<string, SFSymbol>;
 
 export type AppIconName = keyof typeof SYMBOLS;

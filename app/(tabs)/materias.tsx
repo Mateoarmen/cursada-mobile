@@ -5,7 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, type EstadoMateria } from "@/theme/tokens";
-import { AppIcon, AppText, Fab, Pill, PressableScale, PrimaryButton, ProgressRing } from "@/components/ui";
+import { AppIcon, AppText, CtaGlow, Fab, Pill, PressableScale, PrimaryButton, ProgressRing, Reveal } from "@/components/ui";
 import type { DemoMateria } from "@/data/demoContent";
 import { escalaLabel, formatValor, materiaComputadaToRow, unidad } from "@/lib/materias";
 import { getSemestreActivoId } from "@/lib/semestres";
@@ -16,30 +16,6 @@ type FiltroEstado = "todas" | EstadoMateria;
 type Vista = "tarjetas" | "tabla";
 
 const FILTROS_ORDEN: EstadoMateria[] = ["cursando", "aprobada", "pendiente", "recursando"];
-
-function materiaAbrev(nombre: string) {
-  return (nombre.trim().split(/\s+/)[0] ?? "").slice(0, 4).toUpperCase();
-}
-
-function MateriaTile({ item }: { item: Row }) {
-  const accent = materiaColors[item.colorId];
-  return (
-    <View
-      style={{
-        width: 40,
-        height: 40,
-        borderRadius: radii.sm - 2,
-        backgroundColor: accent.strong,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <AppText weight="600" style={{ fontSize: 12, color: colors.white, letterSpacing: -0.1 }}>
-        {materiaAbrev(item.nombre)}
-      </AppText>
-    </View>
-  );
-}
 
 function EstadoBadge({ estado }: { estado: EstadoMateria }) {
   const t = tone[estadoTone[estado]];
@@ -54,6 +30,7 @@ function EstadoBadge({ estado }: { estado: EstadoMateria }) {
 
 function MateriaCard({ item, onPress }: { item: Row; onPress: () => void }) {
   const t = tone[item.tone];
+  const accent = materiaColors[item.colorId];
   const notaTxt = item.promedio > 0 ? formatValor(item.promedio, item.escalaTipo) : "—";
   const pct = item.promedio > 0 ? Math.max(0, Math.min(1, item.promedio / item.escalaTotal)) : 0;
   const aprobTxt = `aprueba ${formatValor(item.escalaAprob, item.escalaTipo)}${unidad(item.escalaTipo)}`;
@@ -66,26 +43,30 @@ function MateriaCard({ item, onPress }: { item: Row; onPress: () => void }) {
       style={{
         backgroundColor: colors.surface,
         borderRadius: radii.sm,
-        padding: spacing.xl,
-        gap: spacing.lg,
+        padding: spacing.lg,
+        gap: spacing.md,
+        borderLeftWidth: 3,
+        borderLeftColor: accent.strong,
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.sm }}>
-        <MateriaTile item={item} />
-        <EstadoBadge estado={item.estado} />
-      </View>
-
+      {/* Rail de color en vez del dot de 10px — mismo lenguaje que ya usan
+          las filas de Agenda (AgendaRow): un borde izquierdo sólido del
+          acento de la materia recorre todo el alto de la card, más
+          distintivo que un puntito chico y consistente entre pantallas. */}
       <View style={{ gap: 3 }}>
-        <AppText weight="600" numberOfLines={1} style={{ fontSize: 16, letterSpacing: -0.15 }}>
-          {item.nombre}
-        </AppText>
-        <AppText numberOfLines={1} style={{ fontSize: 14, color: colors.textTertiary }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+          <AppText weight="600" numberOfLines={1} style={{ fontSize: 15, letterSpacing: -0.15, flex: 1 }}>
+            {item.nombre}
+          </AppText>
+          <EstadoBadge estado={item.estado} />
+        </View>
+        <AppText numberOfLines={1} style={{ fontSize: 13, color: colors.textTertiary }}>
           {item.docente}
         </AppText>
       </View>
 
-      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.lg }}>
-        <ProgressRing size={56} strokeWidth={6} progress={pct} color={t.strong} centerValue={notaTxt} valueFontSize={14} />
+      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+        <ProgressRing size={46} strokeWidth={5} progress={pct} color={t.strong} centerValue={notaTxt} valueFontSize={12} />
         <View style={{ flex: 1, gap: spacing.xs }}>
           <AppText numberOfLines={1} style={{ fontSize: 12, color: colors.textTertiary }}>
             {item.salon}
@@ -102,12 +83,12 @@ function MateriaCard({ item, onPress }: { item: Row; onPress: () => void }) {
           alignItems: "center",
           justifyContent: "space-between",
           gap: spacing.sm,
-          paddingTop: spacing.lg,
+          paddingTop: spacing.md,
           borderTopWidth: 1,
           borderTopColor: colors.borderFaint,
         }}
       >
-        <AppText numberOfLines={1} style={{ fontSize: 12, color: colors.textTertiary, flex: 1 }}>
+        <AppText numberOfLines={1} style={{ fontSize: 11.5, color: colors.textTertiary, flex: 1 }}>
           {escalaLabel(item.escalaTipo, item.escalaTotal)} · {aprobTxt}
           {exonTxt ? ` · ${exonTxt}` : ""}
         </AppText>
@@ -192,7 +173,12 @@ function EmptyState({ onPressPrimera }: { onPressPrimera: () => void }) {
           Empezá con una: nombre, docente, horario y nota de aprobación.
         </AppText>
       </View>
-      <PrimaryButton label="Agregar mi primera materia" onPress={onPressPrimera} />
+      {/* Uno de los 3 lugares sancionados para CtaGlow en design.md
+          ("#btn-empty-primera"): primer uso, se ve una sola vez hasta
+          agregar la primera materia (ver critique P1 de Materias). */}
+      <CtaGlow radius={radii.sm}>
+        <PrimaryButton label="Agregar mi primera materia" onPress={onPressPrimera} />
+      </CtaGlow>
       <AppText style={{ fontSize: 12, color: colors.textGhost }}>nota 0–12, puntaje o porcentaje · vos elegís por materia</AppText>
     </View>
   );
@@ -297,13 +283,14 @@ export default function MateriasScreen() {
         </View>
 
         {rows.length > 0 ? (
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
             <FlatList
               horizontal
               data={opciones}
               keyExtractor={(o) => o}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: spacing.sm }}
+              style={{ flex: 1 }}
               renderItem={({ item: o }) => (
                 <PressableScale scaleTo={0.96} onPress={() => setFiltro(o)}>
                   <Pill
@@ -315,29 +302,32 @@ export default function MateriasScreen() {
                 </PressableScale>
               )}
             />
-          </View>
-        ) : null}
 
-        {rows.length > 0 ? (
-          <View style={{ height: 38, borderRadius: radii.sm, backgroundColor: colors.surfaceSofter, padding: 3, flexDirection: "row", gap: 3 }}>
-            {(["tarjetas", "tabla"] as const).map((key) => (
-              <PressableScale
-                key={key}
-                scaleTo={0.98}
-                onPress={() => setVista(key)}
-                style={{
-                  flex: 1,
-                  borderRadius: 10,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: vista === key ? colors.text : "transparent",
-                }}
-              >
-                <AppText weight={vista === key ? "600" : "500"} style={{ fontSize: 14, color: vista === key ? colors.bg : colors.textSecondary }}>
-                  {key === "tarjetas" ? "Tarjetas" : "Tabla"}
-                </AppText>
-              </PressableScale>
-            ))}
+            {/* Antes era un segmentado de ancho completo con texto
+                "Tarjetas"/"Tabla" en su propia fila — dos íconos al lado de
+                los filtros dicen lo mismo con menos peso visual y sin
+                gastar una fila entera. */}
+            <View style={{ flexDirection: "row", backgroundColor: colors.surfaceSofter, borderRadius: radii.sm, padding: 3, gap: 2 }}>
+              {(["tarjetas", "tabla"] as const).map((key) => (
+                <PressableScale
+                  key={key}
+                  scaleTo={0.94}
+                  onPress={() => setVista(key)}
+                  accessibilityLabel={key === "tarjetas" ? "Vista de tarjetas" : "Vista de tabla"}
+                  accessibilityState={{ selected: vista === key }}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: radii.sm - 2,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: vista === key ? colors.text : "transparent",
+                  }}
+                >
+                  <AppIcon name={key === "tarjetas" ? "grid-outline" : "list-outline"} size={15} color={vista === key ? colors.bg : colors.textSecondary} />
+                </PressableScale>
+              ))}
+            </View>
           </View>
         ) : null}
       </View>
@@ -346,34 +336,44 @@ export default function MateriasScreen() {
         <View style={{ paddingTop: spacing.xxxl * 2, alignItems: "center" }}>
           <ActivityIndicator color={colors.textTertiary} />
         </View>
-      ) : rows.length === 0 ? (
-        <EmptyState onPressPrimera={onNuevaMateria} />
-      ) : vista === "tarjetas" ? (
-        <FlatList
-          data={filtradas}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 140, gap: spacing.smd }}
-          renderItem={({ item }) => <MateriaCard item={item} onPress={() => onAbrirMateria(item.id)} />}
-          ListFooterComponent={<AddMateriaCard onPress={onNuevaMateria} />}
-          ListFooterComponentStyle={{ marginTop: spacing.smd }}
-          ListEmptyComponent={
-            <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>
-              Ninguna materia coincide con la búsqueda.
-            </AppText>
-          }
-        />
       ) : (
-        <FlatList
-          data={filtradas}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 140 }}
-          renderItem={({ item }) => <MateriaTableRow item={item} onPress={() => onAbrirMateria(item.id)} />}
-          ListEmptyComponent={
-            <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>
-              Ninguna materia coincide con la búsqueda.
-            </AppText>
-          }
-        />
+        // Antes el contenido cargado aparecía de golpe apenas resolvía el
+        // fetch (mismo anti-patrón que ya se corrigió en Inicio, ver
+        // critique P0) — Reveal sólo se monta acá, una vez, cuando se pasa
+        // de spinner a contenido real; cambiar de vista (tarjetas/tabla)
+        // después no vuelve a montarlo, así que no repite la animación en
+        // cada toggle manual del usuario.
+        <Reveal style={{ flex: 1 }}>
+          {rows.length === 0 ? (
+            <EmptyState onPressPrimera={onNuevaMateria} />
+          ) : vista === "tarjetas" ? (
+            <FlatList
+              data={filtradas}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 140, gap: spacing.smd }}
+              renderItem={({ item }) => <MateriaCard item={item} onPress={() => onAbrirMateria(item.id)} />}
+              ListFooterComponent={<AddMateriaCard onPress={onNuevaMateria} />}
+              ListFooterComponentStyle={{ marginTop: spacing.smd }}
+              ListEmptyComponent={
+                <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>
+                  Ninguna materia coincide con la búsqueda.
+                </AppText>
+              }
+            />
+          ) : (
+            <FlatList
+              data={filtradas}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 140 }}
+              renderItem={({ item }) => <MateriaTableRow item={item} onPress={() => onAbrirMateria(item.id)} />}
+              ListEmptyComponent={
+                <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>
+                  Ninguna materia coincide con la búsqueda.
+                </AppText>
+              }
+            />
+          )}
+        </Reveal>
       )}
 
       <Fab onPress={onNuevaMateria} />

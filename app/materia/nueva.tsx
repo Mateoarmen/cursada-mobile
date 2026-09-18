@@ -3,7 +3,7 @@ import { router } from "expo-router";
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, spacing } from "@/theme/tokens";
-import { AppText, BackButton, PrimaryButton } from "@/components/ui";
+import { AppText, BackButton, PrimaryButton, Reveal } from "@/components/ui";
 import { crearMateria } from "@/lib/materias";
 import { useMateriaFormState } from "@/hooks/useMateriaFormState";
 import { MateriaBasicosFields } from "@/components/materia/MateriaBasicosFields";
@@ -60,7 +60,11 @@ export default function MateriaNuevaScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
-      <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.sm, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+      <View
+        style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.sm, flexDirection: "row", alignItems: "center", gap: spacing.md }}
+        accessible
+        accessibilityLabel={`Paso ${pasoIdx + 1} de ${PASOS.length}: ${TITULOS[paso]}`}
+      >
         <BackButton onPress={volver} />
         <View style={{ flex: 1, flexDirection: "row", justifyContent: "center", gap: 4 }}>
           {PASOS.map((p, i) => (
@@ -72,38 +76,49 @@ export default function MateriaNuevaScreen() {
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, gap: spacing.xl, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
-          <AppText weight="700" style={{ fontSize: 22, letterSpacing: -0.3 }}>
-            {TITULOS[paso]}
-          </AppText>
+          {/* key={paso} fuerza que Reveal se remonte en cada paso — un
+              momento autoral por transición de paso, mismo criterio que el
+              resto de la app (ver animate.md: una sola entrada, no una por
+              campo). */}
+          <Reveal key={paso} style={{ gap: spacing.xl }}>
+            <View style={{ gap: 2 }}>
+              <AppText weight="600" style={{ fontSize: 12, letterSpacing: 0.4, color: colors.accentText }}>
+                Paso {pasoIdx + 1} de {PASOS.length}
+              </AppText>
+              <AppText weight="700" style={{ fontSize: 22, letterSpacing: -0.3 }}>
+                {TITULOS[paso]}
+              </AppText>
+            </View>
 
-          {paso === "basicos" ? (
-            <MateriaBasicosFields nombre={f.nombre} setNombre={f.setNombre} doc={f.doc} setDoc={f.setDoc} colorId={f.colorId} setColorId={f.setColorId} />
-          ) : null}
+            {paso === "basicos" ? (
+              <MateriaBasicosFields nombre={f.nombre} setNombre={f.setNombre} doc={f.doc} setDoc={f.setDoc} colorId={f.colorId} setColorId={f.setColorId} />
+            ) : null}
 
-          {paso === "cursada" ? (
-            <MateriaCursadaFields
-              salon={f.salon}
-              setSalon={f.setSalon}
-              estado={f.estado}
-              setEstado={f.setEstado}
-              bloques={f.bloques}
-              onAgregarFranja={f.agregarFranja}
-              onQuitarFranja={f.quitarFranja}
-            />
-          ) : null}
+            {paso === "cursada" ? (
+              <MateriaCursadaFields
+                salon={f.salon}
+                setSalon={f.setSalon}
+                estado={f.estado}
+                setEstado={f.setEstado}
+                bloques={f.bloques}
+                onAgregarFranja={f.agregarFranja}
+                onQuitarFranja={f.quitarFranja}
+              />
+            ) : null}
 
-          {paso === "calificacion" ? (
-            <MateriaCalificacionFields
-              escTipo={f.escTipo}
-              onCambiarTipo={f.onCambiarTipo}
-              escTotal={f.escTotal}
-              setEscTotal={f.setEscTotal}
-              escAprob={f.escAprob}
-              setEscAprob={f.setEscAprob}
-              escExon={f.escExon}
-              setEscExon={f.setEscExon}
-            />
-          ) : null}
+            {paso === "calificacion" ? (
+              <MateriaCalificacionFields
+                escTipo={f.escTipo}
+                onCambiarTipo={f.onCambiarTipo}
+                escTotal={f.escTotal}
+                setEscTotal={f.setEscTotal}
+                escAprob={f.escAprob}
+                setEscAprob={f.setEscAprob}
+                escExon={f.escExon}
+                setEscExon={f.setEscExon}
+              />
+            ) : null}
+          </Reveal>
         </ScrollView>
       </KeyboardAvoidingView>
 

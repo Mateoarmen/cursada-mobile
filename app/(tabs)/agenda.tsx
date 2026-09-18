@@ -5,7 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { colors, materiaColors, radii, spacing, tone, type Tone } from "@/theme/tokens";
-import { AppIcon, AppText, BottomSheet, Fab, Pill, PressableScale, PrimaryButton } from "@/components/ui";
+import { AppIcon, AppText, BottomSheet, Fab, Pill, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
 import type { DemoAgendaItem } from "@/data/demoContent";
 import { materiaComputadaToRow } from "@/lib/materias";
 import { useAgenda } from "@/hooks/useAgenda";
@@ -51,6 +51,23 @@ function isoToday() {
   return today().toISOString().slice(0, 10);
 }
 
+const FECHA_QUICK_LABELS = ["Hoy", "Mañana", "Pasado", "En una semana"];
+const FECHA_QUICK_OFFSETS = [0, 1, 2, 7];
+
+// Opciones rápidas de fecha para el sheet de creación — sin agregar una
+// dependencia nativa de date-picker sólo para esto (ver critique P2: antes
+// todo ítem nuevo nacía "hoy" sin poder elegir, corrompiendo el
+// agrupamiento de Agenda). Cubre el caso real de uso: cargar algo que ya
+// se sabe hoy/mañana/en unos días, no un calendario completo.
+function fechaQuickOptions() {
+  const base = today();
+  return FECHA_QUICK_OFFSETS.map((offset, i) => {
+    const d = new Date(base);
+    d.setDate(d.getDate() + offset);
+    return { value: d.toISOString().slice(0, 10), label: FECHA_QUICK_LABELS[i]! };
+  });
+}
+
 function AgendaRow({
   item,
   ocultarMateriaChip,
@@ -93,7 +110,10 @@ function AgendaRow({
         scaleTo={0.85}
         disabled={!esMateria}
         onPress={onToggleHecho}
-        hitSlop={10}
+        hitSlop={12}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: item.hecho, disabled: !esMateria }}
+        accessibilityLabel={esMateria ? (item.hecho ? "Marcar como pendiente" : "Marcar como completado") : undefined}
         style={{
           width: 22,
           height: 22,
@@ -239,8 +259,7 @@ export default function AgendaScreen() {
   const [query, setQuery] = useState("");
   const [completadasAbiertas, setCompletadasAbiertas] = useState(false);
 
-  const [materiaSheetOpen, setMateriaSheetOpen] = useState(false);
-  const [estadoSheetOpen, setEstadoSheetOpen] = useState(false);
+  const [filtrosSheetOpen, setFiltrosSheetOpen] = useState(false);
   const [nuevoSheetOpen, setNuevoSheetOpen] = useState(false);
   const [actionItem, setActionItem] = useState<EnrichedItem | null>(null);
   const [notaSheetItem, setNotaSheetItem] = useState<EnrichedItem | null>(null);
@@ -250,6 +269,7 @@ export default function AgendaScreen() {
   const [creTitulo, setCreTitulo] = useState("");
   const [creMateriaId, setCreMateriaId] = useState(materiasRows[0]?.id ?? "");
   const [creTodoElDia, setCreTodoElDia] = useState(true);
+  const [creFecha, setCreFecha] = useState(isoToday());
 
   const t = useMemo(() => today(), []);
   const materiaLookup = useMemo(() => new Map(materiasRows.map((m) => [m.id, m])), [materiasRows]);
@@ -313,19 +333,34 @@ export default function AgendaScreen() {
 
   const materiaSeleccionLabel = filtroMateriaId ? materiaLookup.get(filtroMateriaId)?.nombre ?? "Materia" : "Todas las materias";
   const estadoSeleccionLabel = ESTADO_OPTIONS.find((o) => o.value === filtroEstado)?.label ?? "Todos los estados";
+  const filtrosActivosCount = (filtroMateriaId ? 1 : 0) + (filtroEstado ? 1 : 0);
+  const filtrosActivos = filtrosActivosCount > 0 || !!filtroKind || !!query.trim();
+  const limpiarFiltros = () => {
+    setFiltroKind("");
+    setFiltroMateriaId("");
+    setFiltroEstado("");
+    setQuery("");
+  };
+
+  // Gatea la entrada única de contenido a que haya datos reales (mismo
+  // criterio que Inicio, ver critique P0) — antes rows===null se leía
+  // igual que "no hay ítems", mintiéndole a quien recién abre la pantalla.
+  const dataReady = agenda.rows !== null && personal.rows !== null;
+  const showError = !dataReady && (!!agenda.error || !!personal.error);
 
   const abrirCrear = (modo: typeof crearModo) => {
     setNuevoSheetOpen(false);
     setCreTitulo("");
     setCreMateriaId(materiasRows[0]?.id ?? "");
     setCreTodoElDia(true);
+    setCreFecha(isoToday());
     setCrearModo(modo);
   };
 
   const confirmarCrear = async () => {
     if (!crearModo || !creTitulo.trim()) return;
     if (crearModo.kind === "personal") {
-      const ok = await personal.crear({ titulo: creTitulo.trim(), fecha: isoToday(), todoElDia: creTodoElDia });
+      const ok = await personal.crear({ titulo: creTitulo.trim(), fecha: creFecha, todoElDia: creTodoElDia });
       if (!ok) {
         avisarError("No se pudo crear");
         return;
@@ -334,7 +369,7 @@ export default function AgendaScreen() {
       return;
     }
     const tipo = crearModo.itemKind === "evaluacion" ? "Parcial" : "Entrega";
-    const ok = await agenda.crear({ materiaId: creMateriaId, kind: crearModo.itemKind, tipo, titulo: creTitulo.trim(), fecha: isoToday() });
+    const ok = await agenda.crear({ materiaId: creMateriaId, kind: crearModo.itemKind, tipo, titulo: creTitulo.trim(), fecha: creFecha });
     if (!ok) {
       avisarError("No se pudo crear");
       return;
@@ -357,6 +392,7 @@ export default function AgendaScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
+      <Spotlight height={280} />
       <View style={{ paddingHorizontal: spacing.xl, gap: spacing.md, paddingBottom: spacing.sm }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <AppText weight="700" style={{ fontSize: 29, letterSpacing: -0.6 }}>
@@ -392,124 +428,155 @@ export default function AgendaScreen() {
           />
         </View>
 
-        <View style={{ flexDirection: "row", gap: spacing.sm }}>
-          {KIND_OPTIONS.map((o) => (
-            <PressableScale key={o.value} scaleTo={0.96} onPress={() => setFiltroKind(o.value)}>
-              <Pill
-                label={o.label}
-                background={filtroKind === o.value ? colors.text : colors.surfaceSoft}
-                color={filtroKind === o.value ? colors.bg : colors.textSecondary}
-                style={{ height: 32, paddingHorizontal: 14 }}
-              />
-            </PressableScale>
-          ))}
-        </View>
-
-        <View style={{ flexDirection: "row", gap: spacing.sm }}>
-          <PressableScale scaleTo={0.98} onPress={() => setMateriaSheetOpen(true)} style={{ flex: 1 }}>
-            <View
-              style={{
-                height: 36,
-                borderRadius: radii.sm,
-                backgroundColor: colors.surfaceSofter,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                paddingHorizontal: spacing.md,
-              }}
-            >
-              <AppText weight="500" numberOfLines={1} style={{ fontSize: 13, color: colors.textSecondary, flexShrink: 1 }}>
-                {materiaSeleccionLabel}
-              </AppText>
-              <AppIcon name="chevron-down" size={14} color={colors.textFaint} />
-            </View>
-          </PressableScale>
-          <PressableScale scaleTo={0.98} onPress={() => setEstadoSheetOpen(true)} style={{ flex: 1 }}>
-            <View
-              style={{
-                height: 36,
-                borderRadius: radii.sm,
-                backgroundColor: colors.surfaceSofter,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                paddingHorizontal: spacing.md,
-              }}
-            >
-              <AppText weight="500" numberOfLines={1} style={{ fontSize: 13, color: colors.textSecondary, flexShrink: 1 }}>
-                {estadoSeleccionLabel}
-              </AppText>
-              <AppIcon name="chevron-down" size={14} color={colors.textFaint} />
-            </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+          <View style={{ flexDirection: "row", gap: spacing.sm, flex: 1 }}>
+            {KIND_OPTIONS.map((o) => (
+              <PressableScale key={o.value} scaleTo={0.96} onPress={() => setFiltroKind(o.value)}>
+                <Pill
+                  label={o.label}
+                  background={filtroKind === o.value ? colors.text : colors.surfaceSoft}
+                  color={filtroKind === o.value ? colors.bg : colors.textSecondary}
+                  style={{ height: 32, paddingHorizontal: 14 }}
+                />
+              </PressableScale>
+            ))}
+          </View>
+          {/* Materia + estado combinados en un solo sheet — antes eran dos
+              dropdowns idénticos lado a lado (ver critique P2: chrome fijo
+              antes del contenido, y Casey no podía distinguirlos a simple
+              vista). Un badge con el conteo real muestra si hay algo activo
+              sin tener que abrir nada. */}
+          <PressableScale
+            scaleTo={0.96}
+            onPress={() => setFiltrosSheetOpen(true)}
+            accessibilityLabel={`Filtros${filtrosActivosCount ? `, ${filtrosActivosCount} activos` : ""}`}
+            style={{
+              height: 32,
+              borderRadius: radii.sm,
+              backgroundColor: filtrosActivosCount ? colors.accentSoft : colors.surfaceSoft,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingHorizontal: 12,
+            }}
+          >
+            <AppIcon name="options-outline" size={13} color={filtrosActivosCount ? colors.accentText : colors.textSecondary} />
+            <AppText weight="500" style={{ fontSize: 13, color: filtrosActivosCount ? colors.accentText : colors.textSecondary }}>
+              Filtros{filtrosActivosCount ? ` · ${filtrosActivosCount}` : ""}
+            </AppText>
           </PressableScale>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 140, gap: spacing.lg }} showsVerticalScrollIndicator={false}>
-        <AgendaGroup titulo="Vencidas" danger items={vencidas} t={t} ocultarMateriaChip={ocultarMateriaChip} onToggleHecho={toggleHecho} onPressItem={setActionItem} />
-        <AgendaGroup titulo="Esta semana" items={estaSemana} t={t} ocultarMateriaChip={ocultarMateriaChip} onToggleHecho={toggleHecho} onPressItem={setActionItem} />
-        <AgendaGroup
-          titulo="Próximamente"
-          items={proximamente}
-          t={t}
-          ocultarMateriaChip={ocultarMateriaChip}
-          subagruparPorMes
-          onToggleHecho={toggleHecho}
-          onPressItem={setActionItem}
-        />
+      {showError ? (
+        <View
+          accessible
+          accessibilityLabel="No pudimos cargar tu agenda. Revisá tu conexión y volvé a esta pantalla para reintentar."
+          style={{
+            marginHorizontal: spacing.xl,
+            marginBottom: spacing.sm,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: spacing.md,
+            backgroundColor: colors.dangerSofter,
+            borderRadius: radii.md,
+            padding: spacing.lg,
+          }}
+        >
+          <AppIcon name="alert-circle-outline" size={18} color={colors.dangerText} />
+          <AppText style={{ flex: 1, fontSize: 13, color: colors.dangerText }}>
+            No pudimos cargar tu agenda. Revisá tu conexión y volvé a esta pantalla para reintentar.
+          </AppText>
+        </View>
+      ) : null}
 
-        {completadas.length ? (
-          <View style={{ gap: spacing.sm }}>
-            <PressableScale
-              scaleTo={0.99}
-              onPress={() => setCompletadasAbiertas((v) => !v)}
-              style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}
-            >
-              <AppText weight="700" style={{ fontSize: 11, letterSpacing: 0.7, textTransform: "uppercase", color: colors.textSecondary }}>
-                Completadas
-              </AppText>
-              <AppText mono style={{ fontSize: 11, color: colors.textFaint }}>
-                {completadas.length}
-              </AppText>
-              <AppIcon name={completadasAbiertas ? "chevron-up" : "chevron-down"} size={13} color={colors.textFaint} />
-            </PressableScale>
-            {completadasAbiertas ? (
+      <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 140, gap: spacing.lg }} showsVerticalScrollIndicator={false}>
+        {!dataReady ? (
+          <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando tu agenda…</AppText>
+        ) : (
+          <Reveal style={{ gap: spacing.lg }}>
+            <AgendaGroup titulo="Vencidas" danger items={vencidas} t={t} ocultarMateriaChip={ocultarMateriaChip} onToggleHecho={toggleHecho} onPressItem={setActionItem} />
+            <AgendaGroup titulo="Esta semana" items={estaSemana} t={t} ocultarMateriaChip={ocultarMateriaChip} onToggleHecho={toggleHecho} onPressItem={setActionItem} />
+            <AgendaGroup
+              titulo="Próximamente"
+              items={proximamente}
+              t={t}
+              ocultarMateriaChip={ocultarMateriaChip}
+              subagruparPorMes
+              onToggleHecho={toggleHecho}
+              onPressItem={setActionItem}
+            />
+
+            {completadas.length ? (
               <View style={{ gap: spacing.sm }}>
-                {completadas.map((item) => (
-                  <AgendaRow
-                    key={item.id}
-                    item={item}
-                    ocultarMateriaChip={ocultarMateriaChip}
-                    t={t}
-                    onToggleHecho={() => toggleHecho(item.id)}
-                    onPress={() => setActionItem(item)}
-                  />
-                ))}
+                <PressableScale
+                  scaleTo={0.99}
+                  onPress={() => setCompletadasAbiertas((v) => !v)}
+                  style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}
+                >
+                  <AppText weight="700" style={{ fontSize: 11, letterSpacing: 0.7, textTransform: "uppercase", color: colors.textSecondary }}>
+                    Completadas
+                  </AppText>
+                  <AppText mono style={{ fontSize: 11, color: colors.textFaint }}>
+                    {completadas.length}
+                  </AppText>
+                  <AppIcon name={completadasAbiertas ? "chevron-up" : "chevron-down"} size={13} color={colors.textFaint} />
+                </PressableScale>
+                {completadasAbiertas ? (
+                  <View style={{ gap: spacing.sm }}>
+                    {completadas.map((item) => (
+                      <AgendaRow
+                        key={item.id}
+                        item={item}
+                        ocultarMateriaChip={ocultarMateriaChip}
+                        t={t}
+                        onToggleHecho={() => toggleHecho(item.id)}
+                        onPress={() => setActionItem(item)}
+                      />
+                    ))}
+                  </View>
+                ) : null}
               </View>
             ) : null}
-          </View>
-        ) : null}
 
-        {!entries.length ? (
-          <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>
-            No hay ítems con estos filtros.
-          </AppText>
-        ) : null}
+            {!entries.length && filtrosActivos ? (
+              <View style={{ alignItems: "center", gap: spacing.md, paddingTop: spacing.xxxl }}>
+                <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center" }}>Ningún ítem coincide con estos filtros.</AppText>
+                <PrimaryButton label="Limpiar filtros" variant="ghost" onPress={limpiarFiltros} />
+              </View>
+            ) : null}
+
+            {!entries.length && !filtrosActivos ? (
+              <View style={{ alignItems: "center", gap: spacing.md, paddingTop: spacing.xxxl }}>
+                <View style={{ width: 48, height: 48, borderRadius: radii.round, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }}>
+                  <AppIcon name="calendar-outline" size={22} color={colors.textFaint} />
+                </View>
+                <AppText weight="600" style={{ fontSize: 15 }}>
+                  Tu agenda está vacía
+                </AppText>
+                <AppText style={{ fontSize: 13, color: colors.textTertiary, textAlign: "center" }}>
+                  Agregá tu primera evaluación, tarea o evento.
+                </AppText>
+                <PrimaryButton label="+ Nuevo" onPress={() => setNuevoSheetOpen(true)} />
+              </View>
+            ) : null}
+          </Reveal>
+        )}
       </ScrollView>
 
       <Fab onPress={() => setNuevoSheetOpen(true)} />
 
-      {/* Filtro: materia */}
-      <BottomSheet visible={materiaSheetOpen} onClose={() => setMateriaSheetOpen(false)}>
+      {/* Filtros: materia + estado combinados */}
+      <BottomSheet visible={filtrosSheetOpen} onClose={() => setFiltrosSheetOpen(false)}>
         <AppText weight="600" style={{ fontSize: 17 }}>
-          Filtrar por materia
+          Filtros
+        </AppText>
+        <AppText weight="700" style={{ fontSize: 11, letterSpacing: 0.7, textTransform: "uppercase", color: colors.textFaint, paddingTop: spacing.xs }}>
+          Materia
         </AppText>
         <PressableScale
           scaleTo={0.99}
-          onPress={() => {
-            setFiltroMateriaId("");
-            setMateriaSheetOpen(false);
-          }}
+          onPress={() => setFiltroMateriaId("")}
           style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: spacing.md }}
         >
           <AppText weight={filtroMateriaId === "" ? "600" : "400"} style={{ fontSize: 15 }}>
@@ -521,10 +588,7 @@ export default function AgendaScreen() {
           <PressableScale
             key={m.id}
             scaleTo={0.99}
-            onPress={() => {
-              setFiltroMateriaId(m.id);
-              setMateriaSheetOpen(false);
-            }}
+            onPress={() => setFiltroMateriaId(m.id)}
             style={{
               flexDirection: "row",
               alignItems: "center",
@@ -541,21 +605,15 @@ export default function AgendaScreen() {
             {filtroMateriaId === m.id ? <AppIcon name="checkmark" size={18} color={colors.accent} /> : null}
           </PressableScale>
         ))}
-      </BottomSheet>
 
-      {/* Filtro: estado */}
-      <BottomSheet visible={estadoSheetOpen} onClose={() => setEstadoSheetOpen(false)}>
-        <AppText weight="600" style={{ fontSize: 17 }}>
-          Filtrar por estado
+        <AppText weight="700" style={{ fontSize: 11, letterSpacing: 0.7, textTransform: "uppercase", color: colors.textFaint, paddingTop: spacing.lg }}>
+          Estado
         </AppText>
         {ESTADO_OPTIONS.map((o, i) => (
           <PressableScale
             key={o.value}
             scaleTo={0.99}
-            onPress={() => {
-              setFiltroEstado(o.value);
-              setEstadoSheetOpen(false);
-            }}
+            onPress={() => setFiltroEstado(o.value)}
             style={{
               flexDirection: "row",
               alignItems: "center",
@@ -571,6 +629,11 @@ export default function AgendaScreen() {
             {filtroEstado === o.value ? <AppIcon name="checkmark" size={18} color={colors.accent} /> : null}
           </PressableScale>
         ))}
+
+        <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.md }}>
+          <PrimaryButton label="Limpiar" variant="ghost" flex onPress={limpiarFiltros} />
+          <PrimaryButton label="Listo" flex onPress={() => setFiltrosSheetOpen(false)} />
+        </View>
       </BottomSheet>
 
       {/* + Nuevo */}
@@ -579,17 +642,9 @@ export default function AgendaScreen() {
           Crear nuevo
         </AppText>
         {[
-          { icon: "book-outline" as const, label: "Materia", onPress: () => { setNuevoSheetOpen(false); router.push("/(tabs)/materias"); } },
+          { icon: "book-outline" as const, label: "Materia", onPress: () => { setNuevoSheetOpen(false); router.push("/materia/nueva"); } },
           { icon: "school-outline" as const, label: "Evaluación", onPress: () => abrirCrear({ kind: "materia", itemKind: "evaluacion" }) },
           { icon: "checkbox-outline" as const, label: "Tarea", onPress: () => abrirCrear({ kind: "materia", itemKind: "tarea" }) },
-          {
-            icon: "create-outline" as const,
-            label: "Cargar nota",
-            onPress: () => {
-              setNuevoSheetOpen(false);
-              Alert.alert("Cargar nota", 'Abrí una evaluación rendida desde su fila y usá "Asignar nota".');
-            },
-          },
           { icon: "calendar-outline" as const, label: "Evento personal", onPress: () => abrirCrear({ kind: "personal" }) },
         ].map((opt, i) => (
           <PressableScale
@@ -658,7 +713,18 @@ export default function AgendaScreen() {
             />
           </PressableScale>
         )}
-        <AppText style={{ fontSize: 12, color: colors.textFaint }}>Se agenda para hoy — la fecha se podrá elegir en la próxima iteración.</AppText>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
+          {fechaQuickOptions().map((o) => (
+            <PressableScale key={o.value} scaleTo={0.96} onPress={() => setCreFecha(o.value)}>
+              <Pill
+                label={o.label}
+                color={creFecha === o.value ? colors.accentText : colors.textSecondary}
+                background={creFecha === o.value ? colors.accentSoft : colors.surfaceSoft}
+                style={{ height: 32, paddingHorizontal: 13 }}
+              />
+            </PressableScale>
+          ))}
+        </View>
         <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
           <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setCrearModo(null)} />
           <PrimaryButton label="Crear" flex disabled={!creTitulo.trim()} onPress={confirmarCrear} />

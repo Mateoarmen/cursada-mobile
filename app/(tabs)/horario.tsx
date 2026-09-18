@@ -4,8 +4,8 @@ import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
-import { colors, materiaColors, radii, spacing, type MateriaColorId } from "@/theme/tokens";
-import { AppText, PressableScale } from "@/components/ui";
+import { colors, materiaColors, radii, shadows, spacing, type MateriaColorId } from "@/theme/tokens";
+import { AppIcon, AppText, PressableScale, Reveal, Spotlight } from "@/components/ui";
 import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
 import { getSemestreActivoId } from "@/lib/semestres";
 
@@ -18,9 +18,27 @@ type BloqueDelDia = {
   accentColor: string;
   accentSoft: string;
   ini: number;
+  fin: number;
 };
 
-const DIAS_SEMANA = DIAS_BLOQUE.map((label, i) => ({ key: label, label, dia: i + 1 }));
+// Altura del bloque proporcional a la duración real, sobre una escala
+// horaria compartida — antes todos los bloques tenían minHeight:110 fijo,
+// así que una clase de 1h y una de 4h se veían idénticas y la columna de
+// hora era decorativa (ver critique P0). 64px por hora, piso de 56 para
+// que un bloque de 30' siga siendo legible.
+const PX_POR_HORA = 64;
+const ALTURA_MIN_BLOQUE = 56;
+
+// Lunes (weekStart) de la semana calendario real que contiene "hoy" — los
+// bloques de horario son recurrentes por día de semana (no por fecha), pero
+// el selector necesita mostrar la fecha real de ESTA semana, no el ordinal
+// del día 1–6 que antes se leía como si fuera un número de fecha.
+function lunesDeEstaSemana(): Date {
+  const hoy = new Date();
+  const diff = (hoy.getDay() + 6) % 7; // 0=lunes … 6=domingo
+  const lunes = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - diff);
+  return lunes;
+}
 
 function diaDeHoy() {
   const g = new Date().getDay(); // 0=domingo
@@ -30,6 +48,17 @@ function diaDeHoy() {
 export default function HorarioScreen() {
   const [diaSeleccionado, setDiaSeleccionado] = useState(diaDeHoy());
   const [materias, setMaterias] = useState<Materia[] | null>(null);
+  const [fetchError, setFetchError] = useState(false);
+
+  const lunes = useMemo(() => lunesDeEstaSemana(), []);
+  const DIAS_SEMANA = useMemo(
+    () =>
+      DIAS_BLOQUE.map((label, i) => {
+        const fecha = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + i);
+        return { key: label, label, dia: i + 1, fecha, esHoy: fecha.toDateString() === new Date().toDateString() };
+      }),
+    [lunes]
+  );
 
   // Acotado al semestre activo — mismo criterio que Materias/Inicio (ver
   // computeMateriasDelActivo en runtime.js/lib/materias.ts).
@@ -37,11 +66,18 @@ export default function HorarioScreen() {
     useCallback(() => {
       let cancelado = false;
       (async () => {
-        const activeId = await getSemestreActivoId();
-        let query = supabase.from("materias").select("*");
-        if (activeId) query = query.eq("semestre_id", activeId);
-        const { data } = await query;
-        if (!cancelado) setMaterias(data ?? []);
+        try {
+          const activeId = await getSemestreActivoId();
+          let query = supabase.from("materias").select("*");
+          if (activeId) query = query.eq("semestre_id", activeId);
+          const { data } = await query;
+          if (cancelado) return;
+          setFetchError(false);
+          setMaterias(data ?? []);
+        } catch {
+          if (cancelado) return;
+          setFetchError(true);
+        }
       })();
       return () => {
         cancelado = true;
@@ -68,6 +104,7 @@ export default function HorarioScreen() {
           accentColor: accent.strong,
           accentSoft: accent.soft,
           ini: b.ini,
+          fin: b.fin,
         });
         map.set(b.dia, arr);
       });
@@ -76,20 +113,28 @@ export default function HorarioScreen() {
     return map;
   }, [materias]);
 
+  // Carga por día (conteo de clases) para el indicador en el selector —
+  // así la semana se lee de un vistazo desde los 6 chips, sin tener que
+  // tocar cada día (ver critique P0: Horario no podía responder "¿cómo es
+  // mi semana?").
+  const cargaPorDia = useMemo(() => {
+    const max = Math.max(1, ...DIAS_SEMANA.map((d) => porDia.get(d.dia)?.length ?? 0));
+    return new Map(DIAS_SEMANA.map((d) => [d.dia, (porDia.get(d.dia)?.length ?? 0) / max]));
+  }, [porDia, DIAS_SEMANA]);
+
   const bloques = porDia.get(diaSeleccionado) ?? [];
+  const dataReady = materias !== null;
   const resumen = useMemo(() => {
-    if (materias === null) return "Cargando…";
+    if (!dataReady) return "";
     if (bloques.length === 0) return "Sin clases este día";
-    const horas = bloques.reduce((acc, b) => {
-      const [h1] = b.horaInicio.split(":").map(Number);
-      const [h2] = b.horaFin.split(":").map(Number);
-      return acc + ((h2 ?? 0) - (h1 ?? 0));
-    }, 0);
-    return `${bloques.length} ${bloques.length === 1 ? "clase" : "clases"} · ${horas} h · primera ${bloques[0]!.horaInicio}`;
-  }, [bloques, materias]);
+    const horas = bloques.reduce((acc, b) => acc + (b.fin - b.ini), 0);
+    const horasTxt = Number.isInteger(horas) ? String(horas) : horas.toFixed(1);
+    return `${bloques.length} ${bloques.length === 1 ? "clase" : "clases"} · ${horasTxt} h · primera ${bloques[0]!.horaInicio}`;
+  }, [bloques, dataReady]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
+      <Spotlight height={280} />
       <View style={{ paddingHorizontal: spacing.xl, gap: spacing.md, paddingBottom: spacing.sm }}>
         <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" }}>
           <AppText weight="700" style={{ fontSize: 29, letterSpacing: -0.6 }}>
@@ -100,76 +145,125 @@ export default function HorarioScreen() {
         <View style={{ flexDirection: "row", gap: 7 }}>
           {DIAS_SEMANA.map((d) => {
             const active = d.dia === diaSeleccionado;
+            const carga = cargaPorDia.get(d.dia) ?? 0;
             return (
               <PressableScale
                 key={d.key}
                 scaleTo={0.95}
                 onPress={() => setDiaSeleccionado(d.dia)}
-                style={{
-                  flex: 1,
-                  height: 58,
-                  borderRadius: 14,
-                  backgroundColor: active ? colors.accent : colors.surfaceSofter,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 2,
-                }}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${d.label}${d.esHoy ? ", hoy" : ""}, ${d.fecha.getDate()}`}
+                style={[
+                  {
+                    flex: 1,
+                    height: 58,
+                    borderRadius: 14,
+                    backgroundColor: active ? colors.accent : colors.surfaceSofter,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 2,
+                    borderWidth: !active && d.esHoy ? 1.5 : 0,
+                    borderColor: colors.accent,
+                  },
+                  active ? shadows.horarioDiaActivo : null,
+                ]}
               >
                 <AppText
                   weight="600"
                   style={{
                     fontSize: 10,
                     textTransform: "uppercase",
-                    color: active ? "rgba(255,255,255,0.75)" : colors.textTertiary,
+                    color: active ? colors.white : colors.textTertiary,
                   }}
                 >
                   {d.label}
                 </AppText>
                 <AppText weight={active ? "700" : "600"} style={{ fontSize: 16, color: active ? colors.white : colors.text }}>
-                  {d.dia}
+                  {d.fecha.getDate()}
                 </AppText>
+                {/* Indicador de carga: una barra que crece con la cantidad
+                    de clases del día, para leer la semana desde el selector
+                    sin tocar cada chip. */}
+                <View style={{ width: 14, height: 2, borderRadius: 1, backgroundColor: active ? "rgba(255,255,255,0.5)" : colors.borderSoft, overflow: "hidden" }}>
+                  <View
+                    style={{
+                      width: `${Math.max(carga * 100, carga > 0 ? 25 : 0)}%`,
+                      height: "100%",
+                      backgroundColor: active ? colors.white : colors.accentText,
+                    }}
+                  />
+                </View>
               </PressableScale>
             );
           })}
         </View>
-        <AppText style={{ fontSize: 14, color: colors.textSecondary }}>{resumen}</AppText>
+        <AppText style={{ fontSize: 14, color: colors.textSecondary }}>{dataReady ? resumen : "Cargando…"}</AppText>
       </View>
 
+      {!dataReady && fetchError ? (
+        <View
+          accessible
+          accessibilityLabel="No pudimos cargar tu horario. Revisá tu conexión y volvé a esta pantalla para reintentar."
+          style={{
+            marginHorizontal: spacing.xl,
+            marginBottom: spacing.sm,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: spacing.md,
+            backgroundColor: colors.dangerSofter,
+            borderRadius: radii.md,
+            padding: spacing.lg,
+          }}
+        >
+          <AppIcon name="alert-circle-outline" size={18} color={colors.dangerText} />
+          <AppText style={{ flex: 1, fontSize: 13, color: colors.dangerText }}>
+            No pudimos cargar tu horario. Revisá tu conexión y volvé a esta pantalla para reintentar.
+          </AppText>
+        </View>
+      ) : null}
+
       <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
-        {bloques.length === 0 ? (
+        {!dataReady ? null : bloques.length === 0 ? (
           <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>
-            {materias === null ? "Cargando…" : "No hay clases cargadas para este día."}
+            No hay clases cargadas para este día.
           </AppText>
         ) : (
-          bloques.map((b, i) => (
-            <View key={b.id} style={{ flexDirection: "row", gap: spacing.lg, paddingTop: i === 0 ? spacing.sm : spacing.md + 2 }}>
-              <AppText mono style={{ width: 44, fontSize: 12, color: colors.textGhost }}>
-                {b.horaInicio}
-              </AppText>
-              <View
-                style={{
-                  flex: 1,
-                  backgroundColor: b.accentSoft,
-                  borderLeftWidth: 3,
-                  borderLeftColor: b.accentColor,
-                  borderRadius: 0,
-                  borderTopRightRadius: radii.md,
-                  borderBottomRightRadius: radii.md,
-                  padding: spacing.lg,
-                  gap: 5,
-                  minHeight: 110,
-                }}
-              >
-                <AppText weight="600" style={{ fontSize: 16, letterSpacing: -0.1 }}>
-                  {b.materiaNombre}
-                </AppText>
-                <AppText mono style={{ fontSize: 13, color: colors.textSecondary }}>
-                  {b.horaInicio}–{b.horaFin}
-                </AppText>
-                <AppText style={{ fontSize: 13, color: colors.textTertiary }}>{b.ubicacion}</AppText>
-              </View>
-            </View>
-          ))
+          <Reveal>
+            {bloques.map((b, i) => {
+              const alturaBloque = Math.max(ALTURA_MIN_BLOQUE, (b.fin - b.ini) * PX_POR_HORA);
+              return (
+                <View key={b.id} style={{ flexDirection: "row", gap: spacing.lg, paddingTop: i === 0 ? spacing.sm : spacing.md + 2 }}>
+                  <AppText mono style={{ width: 44, fontSize: 13, color: colors.textTertiary }}>
+                    {b.horaInicio}
+                  </AppText>
+                  <View
+                    style={{
+                      flex: 1,
+                      backgroundColor: b.accentSoft,
+                      borderLeftWidth: 3,
+                      borderLeftColor: b.accentColor,
+                      borderRadius: 0,
+                      borderTopRightRadius: radii.md,
+                      borderBottomRightRadius: radii.md,
+                      padding: spacing.lg,
+                      gap: 5,
+                      minHeight: alturaBloque,
+                      justifyContent: "center",
+                    }}
+                  >
+                    <AppText weight="600" style={{ fontSize: 16, letterSpacing: -0.1 }}>
+                      {b.materiaNombre}
+                    </AppText>
+                    <AppText mono style={{ fontSize: 13, color: colors.textSecondary }}>
+                      {b.horaInicio}–{b.horaFin}
+                    </AppText>
+                    <AppText style={{ fontSize: 13, color: colors.textTertiary }}>{b.ubicacion}</AppText>
+                  </View>
+                </View>
+              );
+            })}
+          </Reveal>
         )}
       </ScrollView>
     </SafeAreaView>

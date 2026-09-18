@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { ActivityIndicator, Alert, ScrollView, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Animated, LayoutAnimation, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
-import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, type Tone } from "@/theme/tokens";
-import { AppIcon, AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, RangeSlider } from "@/components/ui";
+import { colors, easing, estadoLabel, estadoTone, materiaColors, motionDuration, radii, spacing, tone, type Tone } from "@/theme/tokens";
+import { AppIcon, AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, RangeSlider, type AppIconName } from "@/components/ui";
 import type { DemoAsistenciaRango, DemoEvaluacion, DemoMateria } from "@/data/demoContent";
 import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
 import { today } from "@/lib/agenda";
@@ -63,8 +63,62 @@ function calloutDe(m: DemoMateria): { titulo: string; texto: string } {
   };
 }
 
-function Card({ children }: { children: React.ReactNode }) {
-  return <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.xl, gap: spacing.lg }}>{children}</View>;
+function Card({ children, compact }: { children: React.ReactNode; compact?: boolean }) {
+  // `compact` — usado en la sección de menor densidad/importancia (Mini
+  // horario) para que no pese lo mismo que Calificación/Evaluaciones (ver
+  // critique P2). Sigue sin sombra/borde — la única diferenciación
+  // permitida en el sistema "flat" es padding/radio, no elevación.
+  return (
+    <View
+      style={{
+        backgroundColor: colors.surface,
+        borderRadius: compact ? radii.md : radii.lg,
+        padding: compact ? spacing.lg : spacing.xl,
+        gap: spacing.lg,
+      }}
+    >
+      {children}
+    </View>
+  );
+}
+
+const CALLOUT_ICON: Record<Tone, AppIconName> = {
+  success: "checkmark-circle-outline",
+  warning: "alert-circle-outline",
+  danger: "close-circle-outline",
+  neutral: "information-circle-outline",
+};
+
+// El veredicto de aprobación (calloutDe) es el dato más importante de toda
+// la pantalla — antes vivía como un párrafo más adentro de la Card de
+// Calificación, con el mismo peso visual que cualquier otro bloque (ver
+// critique P0). Ahora es su propio contenedor, fuera de la Card, con
+// ícono + tipografía de título — sigue sin sombra/glass (el sistema flat
+// no cambia), la distinción es de tamaño/posición, no de elevación.
+function Callout({ tone: t, titulo, texto }: { tone: Tone; titulo: string; texto: string }) {
+  const c = tone[t];
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        gap: spacing.md,
+        alignItems: "flex-start",
+        padding: spacing.lg,
+        borderRadius: radii.lg,
+        backgroundColor: c.soft,
+      }}
+    >
+      <View style={{ width: 32, height: 32, borderRadius: radii.sm, backgroundColor: c.strong + "26", alignItems: "center", justifyContent: "center" }}>
+        <AppIcon name={CALLOUT_ICON[t]} size={17} color={c.text} />
+      </View>
+      <View style={{ flex: 1, gap: 3 }}>
+        <AppText weight="700" style={{ fontSize: 18, letterSpacing: -0.3, lineHeight: 23 }}>
+          {titulo}
+        </AppText>
+        <AppText style={{ fontSize: 13.5, color: colors.textSecondary, lineHeight: 19 }}>{texto}</AppText>
+      </View>
+    </View>
+  );
 }
 
 function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: string }) {
@@ -94,6 +148,14 @@ export default function MateriaDetalleScreen() {
   const [accionItem, setAccionItem] = useState<DemoEvaluacion | null>(null);
   const [crearItemTipo, setCrearItemTipo] = useState<"evaluacion" | "tarea" | null>(null);
   const [crearItemTitulo, setCrearItemTitulo] = useState("");
+  // Rotación del chevron de "Simular escenario" (0 = cerrado, 1 = abierto,
+  // --ease-in-out portado — "algo que se mueve en pantalla"). El panel en
+  // sí anima su aparición/desaparición vía LayoutAnimation (ver
+  // toggleSimulador), no con este valor — RN no anima alto/opacidad de un
+  // layout condicional sin medir manualmente, LayoutAnimation lo resuelve
+  // gratis para este caso (antes no había ninguna transición, ver
+  // critique P1).
+  const chevronRotate = useRef(new Animated.Value(0)).current;
 
   const fetchMateria = useCallback(async () => {
     if (!id) return;
@@ -177,6 +239,18 @@ export default function MateriaDetalleScreen() {
 
   const stub = (titulo: string) => Alert.alert(titulo, "Esta acción llega en una próxima iteración.");
   const avisarError = (titulo: string) => Alert.alert(titulo, "Revisá tu conexión e intentá de nuevo.");
+
+  const toggleSimulador = () => {
+    const next = !simuladorAbierto;
+    LayoutAnimation.configureNext({
+      duration: motionDuration.layout,
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+    });
+    setSimuladorAbierto(next);
+    Animated.timing(chevronRotate, { toValue: next ? 1 : 0, duration: motionDuration.routine, easing: easing.inOut, useNativeDriver: true }).start();
+  };
 
   const abrirCargarNota = () => {
     if (!pendientesEvals.length) {
@@ -301,6 +375,10 @@ export default function MateriaDetalleScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, gap: spacing.xl, paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
+        {/* Veredicto de aprobación — fuera de la Card, es el dato más
+            importante de la pantalla (ver critique P0). */}
+        <Callout tone={materia.tone} titulo={callout.titulo} texto={callout.texto} />
+
         {/* Calificación y aprobación */}
         <Card>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -345,13 +423,6 @@ export default function MateriaDetalleScreen() {
             </View>
           </View>
 
-          <View style={{ padding: spacing.lg, borderRadius: radii.md, backgroundColor: t.soft, borderWidth: 1, borderColor: t.strong + "33", gap: 4 }}>
-            <AppText weight="600" style={{ fontSize: 14 }}>
-              {callout.titulo}
-            </AppText>
-            <AppText style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 18 }}>{callout.texto}</AppText>
-          </View>
-
           <View style={{ flexDirection: "row", gap: spacing.smd }}>
             <PrimaryButton label="Cargar nota" flex onPress={abrirCargarNota} />
             <PrimaryButton label="Cambiar escala" variant="ghost" flex onPress={() => stub("Cambiar escala y aprobación")} />
@@ -377,7 +448,7 @@ export default function MateriaDetalleScreen() {
           ) : null}
 
           {haySimulable ? (
-            <PressableScale scaleTo={0.98} onPress={() => setSimuladorAbierto((v) => !v)}>
+            <PressableScale scaleTo={0.98} onPress={toggleSimulador} accessibilityState={{ expanded: simuladorAbierto }}>
               <View
                 style={{
                   height: 40,
@@ -389,10 +460,21 @@ export default function MateriaDetalleScreen() {
                   gap: spacing.sm,
                 }}
               >
-                <AppIcon name={simuladorAbierto ? "chevron-up" : "options-outline"} size={15} color={colors.text} />
+                <AppIcon name="options-outline" size={15} color={colors.text} />
                 <AppText weight="600" style={{ fontSize: 13 }}>
                   Simular escenario
                 </AppText>
+                <Animated.View
+                  style={{
+                    transform: [
+                      {
+                        rotate: chevronRotate.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "180deg"] }),
+                      },
+                    ],
+                  }}
+                >
+                  <AppIcon name="chevron-down" size={15} color={colors.textTertiary} />
+                </Animated.View>
               </View>
             </PressableScale>
           ) : null}
@@ -518,8 +600,10 @@ export default function MateriaDetalleScreen() {
           )}
         </Card>
 
-        {/* Mini horario semanal */}
-        <Card>
+        {/* Mini horario semanal — compact: la sección de menor densidad de
+            las 4 (ver critique P2), no debe pesar lo mismo que Calificación
+            o Evaluaciones. */}
+        <Card compact>
           <SectionTitle>Mini horario de la materia</SectionTitle>
           <View style={{ flexDirection: "row", gap: spacing.sm - 2 }}>
             {DIAS_BLOQUE.map((label, i) => {
