@@ -147,7 +147,7 @@ export function agendaDeSemestre(agendaAll: EventoAgenda[], materiasAll: Materia
 }
 
 export type KpisComputados = {
-  proximaEvaluacion: { valor: string; sub: string } | null;
+  proximaEvaluacion: { id: string; valor: string; sub: string } | null;
   promedioGeneral: { valor: string; sub: string; empty: false } | { empty: true; ctaTexto: string };
   pendientesSemana: { valor: string; sub: string; tone: Tone };
 };
@@ -182,7 +182,11 @@ export function computeKpis(materiasAll: Materia[], agendaAll: EventoAgenda[], s
 
   return {
     proximaEvaluacion: proxExamen
-      ? { valor: `${DIAS_CORTOS[proxExamen.d.getDay()]} ${proxExamen.d.getDate()}`, sub: `${proxExamen.a.tipo} · ${materiaNombre(proxExamen.a.materia_id)}` }
+      ? {
+          id: proxExamen.a.id,
+          valor: `${DIAS_CORTOS[proxExamen.d.getDay()]} ${proxExamen.d.getDate()}`,
+          sub: `${proxExamen.a.tipo} · ${materiaNombre(proxExamen.a.materia_id)}`,
+        }
       : null,
     promedioGeneral: promedio != null ? { valor: `${promedio}%`, sub: "normalizado · 3 escalas distintas", empty: false } : { empty: true, ctaTexto: "Cargá tu primera nota" },
     pendientesSemana: {

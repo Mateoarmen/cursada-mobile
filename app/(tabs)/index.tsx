@@ -300,14 +300,19 @@ export default function InicioScreen() {
                       onPress={() => heroMateriaRaw && router.push(`/materia/${heroMateriaRaw.id}`)}
                     />
                   ) : (
-                    <PrimaryButton label="Ver en agenda" flex style={{ minHeight: 40 }} onPress={() => router.push("/(tabs)/agenda")} />
+                    <PrimaryButton
+                      label="Ver en agenda"
+                      flex
+                      style={{ minHeight: 40 }}
+                      onPress={() => router.push(`/item/${heroItem.item.id}?kind=personal`)}
+                    />
                   )}
                   {heroItem.tipo === "materia" ? (
                     <PrimaryButton
                       label="Ver en agenda"
                       variant="ghost"
                       style={{ minHeight: 40, paddingHorizontal: spacing.lg }}
-                      onPress={() => router.push("/(tabs)/agenda")}
+                      onPress={() => router.push(`/item/${heroItem.item.id}?kind=materia`)}
                     />
                   ) : null}
                 </View>
@@ -347,7 +352,7 @@ export default function InicioScreen() {
                     valor={kpis.proximaEvaluacion.valor}
                     sub={kpis.proximaEvaluacion.sub}
                     tone="warning"
-                    onPress={() => router.push("/(tabs)/agenda")}
+                    onPress={() => router.push(`/item/${kpis.proximaEvaluacion!.id}?kind=materia`)}
                     style={{ flexBasis: "100%", flexGrow: 1 }}
                   />
                 </Reveal>
