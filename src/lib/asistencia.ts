@@ -1,13 +1,10 @@
 // Puerto de la lógica de Asistencia de runtime.js (web) — statsAsistencia,
-// statsAsistenciaPorMateria, materiasAsistenciaParaFecha — sin DOM. El
-// schema real de `asistencias` vive en Supabase (mismo backend que la web,
-// ver runtime.js) pero el mobile todavía no lo lee: la LISTA de materias y
-// sus bloques siguen viniendo de `demoMaterias` (ver TODO más amplio en
-// demoContent.ts), pero los NÚMEROS de Resumen/Por materia ya no son el
-// campo `DemoMateria.asistencia` canned — se calculan a partir de los
-// registros reales que el usuario marca en Historial (ver
-// asistenciaStore.ts), para que ambas secciones de la pantalla se hablen
-// entre sí en vez de mostrar dos historias distintas.
+// statsAsistenciaPorMateria, materiasAsistenciaParaFecha — sin DOM. Opera
+// sobre `DemoMateria` (el shape que consumen las pantallas de Asistencia)
+// pero tanto la lista de materias como los registros de asistencia ya
+// vienen de Supabase real (ver app/asistencia.tsx, AsistenciaDiarioGate y
+// useAsistencia.ts) — DemoMateria acá es sólo el shape intermedio, no
+// datos de muestra.
 import type { DemoMateria } from "@/data/demoContent";
 import type { Tone } from "@/theme/tokens";
 
@@ -37,7 +34,7 @@ function diasDelRango(rango: AsistenciaRango, hoy: Date): Date[] {
 }
 
 // % de asistencia = presentes / total sobre los registros reales que el
-// usuario marcó en Historial (ver asistenciaStore.ts) — antes leía el
+// usuario marcó en Historial (ver useAsistencia.ts) — antes leía el
 // campo canned `DemoMateria.asistencia`, que nunca cambiaba sin importar lo
 // que se marcara en Historial (ver critique: las dos secciones de la
 // pantalla contaban historias distintas). Un día sin registro, o marcado
@@ -62,10 +59,10 @@ export function statsGeneral(materias: DemoMateria[], registros: Record<string, 
 
 export type AsistenciaPorMateria = { materia: DemoMateria } & AsistenciaStats;
 
-// Sólo materias con seguimiento de asistencia (asistencia !== null — las
-// aprobadas/pendientes no lo tienen, igual que en la web una materia que
-// dejó de ser 'cursando' deja de pedirse) y con al menos un registro real
-// en este rango.
+// Sólo materias con seguimiento de asistencia (estado === "cursando" —
+// mismo criterio que materiasConClaseHoy/materiasAsistenciaParaFecha en la
+// web: una materia que dejó de estar cursando deja de pedirse) y con al
+// menos un registro real en este rango.
 export function statsPorMateria(materias: DemoMateria[], registros: Record<string, AsistenciaEstado>, rango: AsistenciaRango, hoy: Date): AsistenciaPorMateria[] {
   const acc = new Map<string, { presentes: number; total: number }>();
   for (const fecha of diasDelRango(rango, hoy)) {
@@ -80,7 +77,7 @@ export function statsPorMateria(materias: DemoMateria[], registros: Record<strin
     }
   }
   return materias
-    .filter((m) => m.asistencia != null && acc.has(m.id))
+    .filter((m) => m.estado === "cursando" && acc.has(m.id))
     .map((m) => {
       const s = acc.get(m.id)!;
       return { materia: m, presentes: s.presentes, total: s.total, pct: s.total ? Math.round((s.presentes / s.total) * 100) : null };
@@ -96,12 +93,12 @@ export function tonePorPct(pct: number | null): Tone {
 }
 
 // Qué materias tienen clase en una fecha dada — mismo criterio que
-// materiasAsistenciaParaFecha() (web): materias con seguimiento de
-// asistencia que tienen un bloque ese día de la semana. `Bloque.dia` (ver
-// catalog.ts, 1=Lunes…6=Sábado) calza 1:1 con `Date.getDay()`.
+// materiasAsistenciaParaFecha() (web): materias "cursando" que tienen un
+// bloque ese día de la semana. `Bloque.dia` (ver catalog.ts, 1=Lunes…
+// 6=Sábado) calza 1:1 con `Date.getDay()`.
 export function materiasConClaseEnFecha(materias: DemoMateria[], fecha: Date): DemoMateria[] {
   const dow = fecha.getDay();
-  return materias.filter((m) => m.asistencia != null && m.bloques.some((b) => b.dia === dow));
+  return materias.filter((m) => m.estado === "cursando" && m.bloques.some((b) => b.dia === dow));
 }
 
 export function addDias(fecha: Date, dias: number): Date {
@@ -136,7 +133,7 @@ export function finUltimaClaseEnFecha(materiasDia: DemoMateria[], fecha: Date): 
 // vez terminada la última clase del día (ver finUltimaClaseEnFecha) — no
 // tiene sentido preguntar "¿fuiste a clase?" de una clase que todavía no
 // pasó. `registros` usa la misma clave `${fechaISO}|${materiaId}` que
-// asistenciaStore.ts.
+// useAsistencia.ts.
 export function diasPendientes(
   materias: DemoMateria[],
   registros: Record<string, AsistenciaEstado>,

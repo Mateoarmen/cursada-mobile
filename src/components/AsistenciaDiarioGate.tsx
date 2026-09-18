@@ -12,9 +12,12 @@ import { AppState, View } from "react-native";
 import { colors, spacing } from "@/theme/tokens";
 import { AppText, BottomSheet, PrimaryButton } from "@/components/ui";
 import { AsistenciaRow } from "@/components/AsistenciaRow";
-import { demoMaterias } from "@/data/demoContent";
+import { supabase } from "@/lib/supabase";
+import { getSemestreActivoId } from "@/lib/semestres";
+import { materiaComputadaToRow } from "@/lib/materias";
+import type { Materia } from "@/types/database";
 import { diasPendientes, esMismoDia, formatFechaLarga, materiasConClaseEnFecha, toISODate, type AsistenciaEstado } from "@/lib/asistencia";
-import { useAsistenciaRegistros } from "@/lib/asistenciaStore";
+import { useAsistencia } from "@/hooks/useAsistencia";
 
 function hoy(): Date {
   const d = new Date();
@@ -22,22 +25,46 @@ function hoy(): Date {
 }
 
 export function AsistenciaDiarioGate() {
-  const { registros, marcar, listo } = useAsistenciaRegistros();
+  const { registros, marcar, listo: asistenciaLista } = useAsistencia();
+  const [supaMaterias, setSupaMaterias] = useState<Materia[] | null>(null);
   const [cola, setCola] = useState<Date[]>([]);
   const [seleccion, setSeleccion] = useState<Record<string, AsistenciaEstado>>({});
 
   useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      const activeId = await getSemestreActivoId();
+      let query = supabase.from("materias").select("*");
+      if (activeId) query = query.eq("semestre_id", activeId);
+      const { data } = await query;
+      if (!cancelado) setSupaMaterias(data ?? []);
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  const materias = useMemo(() => (supaMaterias ?? []).map((m) => materiaComputadaToRow(m, [])), [supaMaterias]);
+  // materia_id -> semestre_id de las materias reales (necesario para el
+  // upsert de asistencias, ver mismo lookup en app/asistencia.tsx).
+  const semestreIdPorMateria = useMemo(
+    () => new Map((supaMaterias ?? []).map((m) => [m.id, m.semestre_id])),
+    [supaMaterias]
+  );
+  const listo = asistenciaLista && supaMaterias !== null;
+
+  useEffect(() => {
     if (!listo) return;
-    const recalcular = () => setCola(diasPendientes(demoMaterias, registros, hoy()));
+    const recalcular = () => setCola(diasPendientes(materias, registros, hoy()));
     recalcular();
     const sub = AppState.addEventListener("change", (estado) => {
       if (estado === "active") recalcular();
     });
     return () => sub.remove();
-  }, [listo, registros]);
+  }, [listo, materias, registros]);
 
   const activo = cola[0] ?? null;
-  const materiasDia = useMemo(() => (activo ? materiasConClaseEnFecha(demoMaterias, activo) : []), [activo]);
+  const materiasDia = useMemo(() => (activo ? materiasConClaseEnFecha(materias, activo) : []), [materias, activo]);
   const completo = activo != null && materiasDia.every((m) => seleccion[m.id] != null);
 
   const cerrar = () => {
@@ -50,7 +77,8 @@ export function AsistenciaDiarioGate() {
     const iso = toISODate(activo);
     materiasDia.forEach((m) => {
       const estado = seleccion[m.id];
-      if (estado) marcar(iso, m.id, estado);
+      const semestreId = semestreIdPorMateria.get(m.id);
+      if (estado && semestreId) marcar(iso, m.id, semestreId, estado);
     });
     cerrar();
   };

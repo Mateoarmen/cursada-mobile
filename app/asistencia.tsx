@@ -1,10 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, radii, spacing, tone } from "@/theme/tokens";
 import { AppIcon, AppText, BackButton, PressableScale, ProgressRing, Reveal, Spotlight } from "@/components/ui";
 import { AsistenciaRow } from "@/components/AsistenciaRow";
-import { demoMaterias } from "@/data/demoContent";
+import { supabase } from "@/lib/supabase";
+import { getSemestreActivoId } from "@/lib/semestres";
+import { materiaComputadaToRow } from "@/lib/materias";
+import type { Materia } from "@/types/database";
 import {
   addDias,
   esMismoDia,
@@ -16,7 +19,7 @@ import {
   tonePorPct,
   type AsistenciaRango,
 } from "@/lib/asistencia";
-import { useAsistenciaRegistros } from "@/lib/asistenciaStore";
+import { useAsistencia } from "@/hooks/useAsistencia";
 
 const RANGOS: { key: AsistenciaRango; label: string }[] = [
   { key: "semana", label: "Semana" },
@@ -53,12 +56,47 @@ function BarraProgreso({ pct, color }: { pct: number; color: string }) {
 export default function AsistenciaScreen() {
   const [rango, setRango] = useState<AsistenciaRango>("semana");
   const [fecha, setFecha] = useState<Date>(hoy());
-  const { registros, marcar, listo } = useAsistenciaRegistros();
+  const [supaMaterias, setSupaMaterias] = useState<Materia[] | null>(null);
+  const { registros, marcar: marcarAsistencia, desmarcar, listo: asistenciaLista } = useAsistencia();
+
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      const activeId = await getSemestreActivoId();
+      let query = supabase.from("materias").select("*");
+      if (activeId) query = query.eq("semestre_id", activeId);
+      const { data } = await query;
+      if (!cancelado) setSupaMaterias(data ?? []);
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  const materias = useMemo(() => (supaMaterias ?? []).map((m) => materiaComputadaToRow(m, [])), [supaMaterias]);
+  // materia_id -> semestre_id de las materias reales (materiaComputadaToRow
+  // no lo trae en el shape DemoMateria) — necesario para el upsert de
+  // asistencias, que requiere semestre_id.
+  const semestreIdPorMateria = useMemo(
+    () => new Map((supaMaterias ?? []).map((m) => [m.id, m.semestre_id])),
+    [supaMaterias]
+  );
+  const listo = asistenciaLista && supaMaterias !== null;
+
+  const marcar = (fechaISO: string, materiaId: string, estado: Parameters<typeof marcarAsistencia>[3] | null) => {
+    if (estado == null) {
+      desmarcar(fechaISO, materiaId);
+      return;
+    }
+    const semestreId = semestreIdPorMateria.get(materiaId);
+    if (!semestreId) return;
+    marcarAsistencia(fechaISO, materiaId, semestreId, estado);
+  };
 
   const hoyFija = useMemo(() => hoy(), []);
-  const general = useMemo(() => statsGeneral(demoMaterias, registros, rango, hoyFija), [rango, registros, hoyFija]);
-  const porMateria = useMemo(() => statsPorMateria(demoMaterias, registros, rango, hoyFija), [rango, registros, hoyFija]);
-  const materiasDelDia = useMemo(() => materiasConClaseEnFecha(demoMaterias, fecha), [fecha]);
+  const general = useMemo(() => statsGeneral(materias, registros, rango, hoyFija), [materias, rango, registros, hoyFija]);
+  const porMateria = useMemo(() => statsPorMateria(materias, registros, rango, hoyFija), [materias, rango, registros, hoyFija]);
+  const materiasDelDia = useMemo(() => materiasConClaseEnFecha(materias, fecha), [materias, fecha]);
 
   const toneGeneral = tonePorPct(general.pct);
   const esHoy = esMismoDia(fecha, hoy());

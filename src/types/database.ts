@@ -94,3 +94,14 @@ export type Personal = {
   created_at: string;
   updated_at: string;
 };
+
+export type AsistenciaEstadoDB = "asistio" | "no_asistio" | "no_hubo_clase";
+
+export type Asistencia = {
+  id: string;
+  user_id: string;
+  materia_id: string;
+  semestre_id: string;
+  fecha: string;
+  estado: AsistenciaEstadoDB;
+};
