@@ -261,9 +261,6 @@ export default function AgendaScreen() {
 
   const [filtrosSheetOpen, setFiltrosSheetOpen] = useState(false);
   const [nuevoSheetOpen, setNuevoSheetOpen] = useState(false);
-  const [actionItem, setActionItem] = useState<EnrichedItem | null>(null);
-  const [notaSheetItem, setNotaSheetItem] = useState<EnrichedItem | null>(null);
-  const [notaInput, setNotaInput] = useState("");
 
   const [crearModo, setCrearModo] = useState<{ kind: "materia"; itemKind: "evaluacion" | "tarea" } | { kind: "personal" } | null>(null);
   const [creTitulo, setCreTitulo] = useState("");
@@ -321,15 +318,11 @@ export default function AgendaScreen() {
     if (!ok) avisarError("No se pudo actualizar");
   };
 
-  const eliminarItem = async (id: string) => {
-    if (personal.items.some((p) => p.id === id)) {
-      const ok = await personal.eliminar(id);
-      if (!ok) avisarError("No se pudo eliminar");
-      return;
-    }
-    const ok = await agenda.eliminar(id);
-    if (!ok) avisarError("No se pudo eliminar");
-  };
+  // Detalle completo del ítem (título, materia, fecha, estado, nota,
+  // acciones) vive en app/item/[id].tsx — no hay endpoint "por id" para
+  // agenda/personal, así que esa pantalla resuelve el ítem buscándolo en
+  // los mismos hooks ya fetcheados acá, filtrando por id + kind.
+  const abrirItem = (item: EnrichedItem) => router.push(`/item/${item.id}?kind=${item.kind === "materia" ? "materia" : "personal"}`);
 
   const materiaSeleccionLabel = filtroMateriaId ? materiaLookup.get(filtroMateriaId)?.nombre ?? "Materia" : "Todas las materias";
   const estadoSeleccionLabel = ESTADO_OPTIONS.find((o) => o.value === filtroEstado)?.label ?? "Todos los estados";
@@ -375,19 +368,6 @@ export default function AgendaScreen() {
       return;
     }
     setCrearModo(null);
-  };
-
-  const confirmarNota = async () => {
-    if (!notaSheetItem) return;
-    const n = Number(notaInput.replace(",", "."));
-    if (!Number.isFinite(n)) return;
-    const ok = await agenda.asignarNota(notaSheetItem.id, n);
-    if (!ok) {
-      avisarError("No se pudo guardar la nota");
-      return;
-    }
-    setNotaSheetItem(null);
-    setNotaInput("");
   };
 
   return (
@@ -495,8 +475,8 @@ export default function AgendaScreen() {
           <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando tu agenda…</AppText>
         ) : (
           <Reveal style={{ gap: spacing.lg }}>
-            <AgendaGroup titulo="Vencidas" danger items={vencidas} t={t} ocultarMateriaChip={ocultarMateriaChip} onToggleHecho={toggleHecho} onPressItem={setActionItem} />
-            <AgendaGroup titulo="Esta semana" items={estaSemana} t={t} ocultarMateriaChip={ocultarMateriaChip} onToggleHecho={toggleHecho} onPressItem={setActionItem} />
+            <AgendaGroup titulo="Vencidas" danger items={vencidas} t={t} ocultarMateriaChip={ocultarMateriaChip} onToggleHecho={toggleHecho} onPressItem={abrirItem} />
+            <AgendaGroup titulo="Esta semana" items={estaSemana} t={t} ocultarMateriaChip={ocultarMateriaChip} onToggleHecho={toggleHecho} onPressItem={abrirItem} />
             <AgendaGroup
               titulo="Próximamente"
               items={proximamente}
@@ -504,7 +484,7 @@ export default function AgendaScreen() {
               ocultarMateriaChip={ocultarMateriaChip}
               subagruparPorMes
               onToggleHecho={toggleHecho}
-              onPressItem={setActionItem}
+              onPressItem={abrirItem}
             />
 
             {completadas.length ? (
@@ -531,7 +511,7 @@ export default function AgendaScreen() {
                         ocultarMateriaChip={ocultarMateriaChip}
                         t={t}
                         onToggleHecho={() => toggleHecho(item.id)}
-                        onPress={() => setActionItem(item)}
+                        onPress={() => abrirItem(item)}
                       />
                     ))}
                   </View>
@@ -731,108 +711,6 @@ export default function AgendaScreen() {
         </View>
       </BottomSheet>
 
-      {/* Asignar nota */}
-      <BottomSheet visible={!!notaSheetItem} onClose={() => setNotaSheetItem(null)}>
-        <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
-          Asignar nota
-        </AppText>
-        <AppText style={{ fontSize: 14, color: colors.textSecondary }} numberOfLines={1}>
-          {notaSheetItem?.titulo} · {notaSheetItem?.materiaNombre}
-        </AppText>
-        <TextInput
-          value={notaInput}
-          onChangeText={setNotaInput}
-          placeholder={`Nota sobre ${notaSheetItem?.notaMaxima ?? 12}`}
-          placeholderTextColor={colors.textFaint}
-          keyboardType="decimal-pad"
-          style={{
-            height: 48,
-            borderRadius: radii.sm,
-            backgroundColor: colors.bg,
-            paddingHorizontal: spacing.lg,
-            fontSize: 15,
-            color: colors.text,
-            fontFamily: "InstrumentSans_600SemiBold",
-          }}
-        />
-        <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
-          <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setNotaSheetItem(null)} />
-          <PrimaryButton label="Guardar" flex disabled={!notaInput.trim()} onPress={confirmarNota} />
-        </View>
-      </BottomSheet>
-
-      {/* Acciones de fila */}
-      <BottomSheet visible={!!actionItem} onClose={() => setActionItem(null)}>
-        <AppText weight="600" style={{ fontSize: 17 }} numberOfLines={1}>
-          {actionItem?.titulo}
-        </AppText>
-        {actionItem?.kind === "materia" ? (
-          <PressableScale
-            scaleTo={0.99}
-            onPress={() => {
-              if (actionItem) toggleHecho(actionItem.id);
-              setActionItem(null);
-            }}
-            style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md }}
-          >
-            <AppIcon name={actionItem?.hecho ? "arrow-undo-outline" : "checkmark-circle-outline"} size={18} color={colors.text} />
-            <AppText weight="500" style={{ fontSize: 15 }}>
-              {actionItem?.hecho ? "Marcar como pendiente" : actionItem?.itemKind === "evaluacion" ? "Marcar como rendida" : "Marcar como entregada"}
-            </AppText>
-          </PressableScale>
-        ) : null}
-        {actionItem?.kind === "materia" && actionItem.itemKind === "evaluacion" && actionItem.hecho && actionItem.nota == null ? (
-          <PressableScale
-            scaleTo={0.99}
-            onPress={() => {
-              setNotaSheetItem(actionItem);
-              setNotaInput("");
-              setActionItem(null);
-            }}
-            style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderFaint }}
-          >
-            <AppIcon name="create-outline" size={18} color={colors.text} />
-            <AppText weight="500" style={{ fontSize: 15 }}>
-              Asignar nota
-            </AppText>
-          </PressableScale>
-        ) : null}
-        {actionItem?.kind === "materia" && actionItem.materiaId ? (
-          <PressableScale
-            scaleTo={0.99}
-            onPress={() => {
-              const id = actionItem.materiaId;
-              setActionItem(null);
-              if (id) router.push(`/materia/${id}`);
-            }}
-            style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderFaint }}
-          >
-            <AppIcon name="folder-outline" size={18} color={colors.text} />
-            <AppText weight="500" style={{ fontSize: 15 }}>
-              Ver materia
-            </AppText>
-          </PressableScale>
-        ) : null}
-        <PressableScale
-          scaleTo={0.99}
-          onPress={() => {
-            const id = actionItem?.id;
-            const titulo = actionItem?.titulo;
-            setActionItem(null);
-            if (!id) return;
-            Alert.alert("Eliminar", `¿Eliminar "${titulo}" de la agenda?`, [
-              { text: "Cancelar", style: "cancel" },
-              { text: "Eliminar", style: "destructive", onPress: () => eliminarItem(id) },
-            ]);
-          }}
-          style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderFaint }}
-        >
-          <AppIcon name="trash-outline" size={18} color={colors.dangerText} />
-          <AppText weight="500" style={{ fontSize: 15, color: colors.dangerText }}>
-            Eliminar
-          </AppText>
-        </PressableScale>
-      </BottomSheet>
     </SafeAreaView>
   );
 }
