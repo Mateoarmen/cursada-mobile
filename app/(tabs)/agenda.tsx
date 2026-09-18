@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { router } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
 import { Alert, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
@@ -240,6 +240,17 @@ function AgendaGroup({
 export default function AgendaScreen() {
   const { colors } = useTheme();
   const agenda = useAgenda();
+  const { refetch: refetchAgenda } = agenda;
+
+  // useAgenda() no es un store compartido: Detalle de ítem (app/item/[id].tsx)
+  // tiene su propia copia de `rows`. Sin este refetch, borrar la nota y
+  // volver a "pendiente" desde ahí no sacaba el ítem de "Completadas" al
+  // volver a esta tab (ver bug reportado).
+  useFocusEffect(
+    useCallback(() => {
+      refetchAgenda();
+    }, [refetchAgenda])
+  );
   // Materias reales del usuario, sin fallback a demoMaterias (ver "el hack
   // a eliminar" en materias.tsx) — se usan sólo para el picker de "+ Nueva
   // evaluación/tarea" y para resolver nombre/color en cada fila.
@@ -335,9 +346,35 @@ export default function AgendaScreen() {
 
   const avisarError = (titulo: string) => Alert.alert(titulo, "Revisá tu conexión e intentá de nuevo.");
 
+  // Marcar como pendiente una evaluación que ya tiene nota cargada es
+  // ambiguo (¿la nota se queda o se pierde?) — en vez de tocarla en
+  // silencio, se pregunta explícitamente. Tareas y evaluaciones sin nota
+  // (nota siempre null) van directo, sin fricción de más.
   const toggleHecho = async (id: string) => {
     const actual = agenda.items.find((it) => it.id === id);
     if (!actual) return;
+    if (actual.hecho && actual.nota != null) {
+      Alert.alert("Marcar como pendiente", "Esta evaluación tiene una nota cargada. ¿Qué querés hacer?", [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Mantener la nota",
+          onPress: async () => {
+            const ok = await agenda.marcarHecho(id, false);
+            if (!ok) avisarError("No se pudo actualizar");
+          },
+        },
+        {
+          text: "Quitar nota también",
+          style: "destructive",
+          onPress: async () => {
+            const okNota = await agenda.borrarNota(id);
+            const ok = await agenda.marcarHecho(id, false);
+            if (!okNota || !ok) avisarError("No se pudo actualizar");
+          },
+        },
+      ]);
+      return;
+    }
     const ok = await agenda.marcarHecho(id, !actual.hecho);
     if (!ok) avisarError("No se pudo actualizar");
   };

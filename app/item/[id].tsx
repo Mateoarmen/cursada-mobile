@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { materiaColors, radii, spacing } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, BackButton, MiniCalendario, Pill, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
+import { AppIcon, AppText, BackButton, BottomSheet, MiniCalendario, Pill, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
 import { materiaComputadaToRow } from "@/lib/materias";
 import { getSemestreActivoId } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
@@ -104,15 +104,83 @@ export default function ItemDetalleScreen() {
   const [editMateriaId, setEditMateriaId] = useState("");
   const [editNotaMax, setEditNotaMax] = useState("");
   const [editNota, setEditNota] = useState("");
+  const [notaSheetAbierto, setNotaSheetAbierto] = useState(false);
+  const [notaValor, setNotaValor] = useState("");
 
   const t = useMemo(() => today(), []);
 
   const avisarError = (titulo: string) => Alert.alert(titulo, "Revisá tu conexión e intentá de nuevo.");
 
-  const toggleHecho = async () => {
+  const marcarRendida = async () => {
     if (!item) return;
-    const ok = await agenda.marcarHecho(item.id, !item.hecho);
+    const ok = await agenda.marcarHecho(item.id, true);
     if (!ok) avisarError("No se pudo actualizar");
+  };
+
+  // Ambiguo si la evaluación ya tiene nota cargada: volver a "pendiente" no
+  // debería borrar esa nota en silencio, así que se pregunta explícitamente
+  // (ver mismo criterio en el circulito de Agenda, app/(tabs)/agenda.tsx).
+  const marcarPendiente = async () => {
+    if (!item) return;
+    if (item.nota != null) {
+      Alert.alert("Marcar como pendiente", "Esta evaluación tiene una nota cargada. ¿Qué querés hacer?", [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Mantener la nota",
+          onPress: async () => {
+            const ok = await agenda.marcarHecho(item.id, false);
+            if (!ok) avisarError("No se pudo actualizar");
+          },
+        },
+        {
+          text: "Quitar nota también",
+          style: "destructive",
+          onPress: async () => {
+            const okNota = await agenda.borrarNota(item.id);
+            const ok = await agenda.marcarHecho(item.id, false);
+            if (!okNota || !ok) avisarError("No se pudo actualizar");
+          },
+        },
+      ]);
+      return;
+    }
+    const ok = await agenda.marcarHecho(item.id, false);
+    if (!ok) avisarError("No se pudo actualizar");
+  };
+
+  const abrirNota = () => {
+    if (!item) return;
+    setNotaValor(item.nota != null ? String(item.nota) : "");
+    setNotaSheetAbierto(true);
+  };
+
+  const guardarNota = async () => {
+    if (!item) return;
+    const raw = notaValor.trim();
+    if (!raw) return;
+    const n = Number(raw.replace(",", "."));
+    if (!Number.isFinite(n)) return;
+    const ok = await agenda.asignarNota(item.id, n);
+    if (!ok) {
+      avisarError("No se pudo guardar la nota");
+      return;
+    }
+    setNotaSheetAbierto(false);
+  };
+
+  const quitarNota = () => {
+    if (!item) return;
+    Alert.alert("Quitar nota", "¿Quitar la nota cargada? La evaluación queda marcada como rendida, esperando nota.", [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Quitar nota",
+        style: "destructive",
+        onPress: async () => {
+          const ok = await agenda.borrarNota(item.id);
+          if (!ok) avisarError("No se pudo quitar la nota");
+        },
+      },
+    ]);
   };
 
   const abrirEditar = () => {
@@ -370,18 +438,49 @@ export default function ItemDetalleScreen() {
                   first
                   icon={item.hecho ? "arrow-undo-outline" : "checkmark-circle-outline"}
                   label={item.hecho ? "Marcar como pendiente" : item.itemKind === "evaluacion" ? "Marcar como rendida" : "Marcar como entregada"}
-                  onPress={toggleHecho}
+                  onPress={item.hecho ? marcarPendiente : marcarRendida}
                 />
               ) : null}
-              {!esPersonal ? <AccionRow icon="create-outline" label="Editar" onPress={abrirEditar} /> : null}
-              {materia ? (
-                <AccionRow icon="folder-outline" label="Ver materia" onPress={() => router.push(`/materia/${materia.id}`)} first={esPersonal} />
+              {!esPersonal && item.itemKind === "evaluacion" ? (
+                <AccionRow icon={item.nota != null ? "create-outline" : "add-circle-outline"} label={item.nota != null ? "Editar nota" : "Asignar nota"} onPress={abrirNota} />
               ) : null}
-              <AccionRow icon="trash-outline" label="Eliminar" color={colors.dangerText} onPress={eliminar} first={esPersonal && !materia} />
+              {!esPersonal && item.itemKind === "evaluacion" && item.nota != null ? (
+                <AccionRow icon="close-circle-outline" label="Quitar nota" color={colors.dangerText} onPress={quitarNota} />
+              ) : null}
+              {!esPersonal ? <AccionRow icon="create-outline" label="Editar" onPress={abrirEditar} /> : null}
+              {materia ? <AccionRow icon="folder-outline" label="Ver materia" onPress={() => router.push(`/materia/${materia.id}`)} /> : null}
+              <AccionRow icon="trash-outline" label="Eliminar" color={colors.dangerText} onPress={eliminar} first={esPersonal} />
             </Card>
           )}
         </Reveal>
       </ScrollView>
+
+      <BottomSheet visible={notaSheetAbierto} onClose={() => setNotaSheetAbierto(false)}>
+        <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
+          {item.nota != null ? "Editar nota" : "Asignar nota"}
+        </AppText>
+        <TextInput
+          value={notaValor}
+          onChangeText={setNotaValor}
+          placeholder={`Nota sobre ${item.notaMaxima ?? 12}`}
+          placeholderTextColor={colors.textFaint}
+          keyboardType="decimal-pad"
+          autoFocus
+          style={{
+            height: 46,
+            borderRadius: radii.sm,
+            backgroundColor: colors.bg,
+            paddingHorizontal: spacing.lg,
+            fontSize: 15,
+            color: colors.text,
+            fontFamily: "InstrumentSans_600SemiBold",
+          }}
+        />
+        <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
+          <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setNotaSheetAbierto(false)} />
+          <PrimaryButton label="Guardar" flex disabled={!notaValor.trim()} onPress={guardarNota} />
+        </View>
+      </BottomSheet>
     </SafeAreaView>
   );
 }

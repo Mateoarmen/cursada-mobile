@@ -142,6 +142,20 @@ export function useAgenda(materiaId?: string) {
     return true;
   }, []);
 
+  // Quita la nota sin tocar `hecho` — deja la evaluación en "esperando nota"
+  // en vez de "aprobada" (mismo estado que agendaBadgeInfo ya soporta para
+  // hecho=true + nota=null), para el caso de corregir una nota cargada por
+  // error sin perder que la evaluación ya se rindió.
+  const borrarNota = useCallback(async (id: string) => {
+    const { data, error: err } = await supabase.from("agenda").update({ nota: null }).eq("id", id).select().single();
+    if (err || !data) {
+      setError(err?.message ?? "No se pudo quitar la nota.");
+      return false;
+    }
+    setRows((prev) => (prev ?? []).map((r) => (r.id === id ? data : r)));
+    return true;
+  }, []);
+
   const actualizar = useCallback(async (id: string, patch: ActualizarAgendaInput) => {
     const { data, error: err } = await supabase.from("agenda").update(patch).eq("id", id).select().single();
     if (err || !data) {
@@ -170,6 +184,7 @@ export function useAgenda(materiaId?: string) {
     crear,
     marcarHecho,
     asignarNota,
+    borrarNota,
     actualizar,
     eliminar,
     refetch,

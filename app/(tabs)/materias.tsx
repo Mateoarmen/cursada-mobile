@@ -227,6 +227,18 @@ export default function MateriasScreen() {
   // computeMateria (dentro de materiaComputadaToRow) filtra por materiaId
   // internamente, igual que la web.
   const agenda = useAgenda();
+  const { refetch: refetchAgenda } = agenda;
+
+  // useAgenda() no es un store compartido: cada pantalla que lo llama tiene
+  // su propia copia de `rows` en memoria. Sin este refetch, una nota/rendido
+  // editado en Detalle de materia o Detalle de ítem no se reflejaba acá en
+  // el anillo hasta remontar la tab (ver bug reportado: "en la pantalla de
+  // materias no actualiza el anillo con la nota").
+  useFocusEffect(
+    useCallback(() => {
+      refetchAgenda();
+    }, [refetchAgenda])
+  );
 
   const rows = useMemo<Row[]>(() => {
     if (!materias) return [];

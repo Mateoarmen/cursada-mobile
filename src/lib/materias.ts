@@ -46,13 +46,26 @@ export function margenDe(esc: Pick<EscalaMateria, "total">): number {
   return (MARGEN_RIESGO / 12) * esc.total;
 }
 
-// Réplica exacta de toneDe(estado, esc, parciales) (runtime.js) — "aprobada"
-// siempre es success sin importar las notas; sin ninguna nota cargada es
-// neutral; si no, promedio simple de `parciales` contra esc.aprob/margenDe.
-export function toneDe(estado: Materia["estado"], esc: Pick<EscalaMateria, "aprob" | "total">, parciales: number[]): Tone {
+// En escala "nota" cada evaluación está en la misma base 0-total (ej. dos
+// parciales de 0-12) y lo que importa es el promedio. En "puntos"/"pct" cada
+// evaluación es un componente parcial de un total acumulado (ej. Parcial 1
+// vale 15 y Parcial 2 vale 30 de un curso sobre 100, ver nota_maxima por
+// ítem en cargarNotaAplicarPaso/runtime.js) y hay que sumar lo ganado, no
+// promediarlo — promediar hacía que dos parciales de 13 y 20 mostraran 17
+// en vez de 33 (bug reportado).
+function acumularParciales(esc: Pick<EscalaMateria, "tipo">, parciales: number[]): number {
+  if (esc.tipo === "nota") return parciales.reduce((x, y) => x + y, 0) / parciales.length;
+  return parciales.reduce((x, y) => x + y, 0);
+}
+
+// Réplica de toneDe(estado, esc, parciales) (runtime.js), adaptada para sumar
+// en vez de promediar cuando esc.tipo no es "nota" (ver acumularParciales)
+// — "aprobada" siempre es success sin importar las notas; sin ninguna nota
+// cargada es neutral.
+export function toneDe(estado: Materia["estado"], esc: Pick<EscalaMateria, "tipo" | "aprob" | "total">, parciales: number[]): Tone {
   if (estado === "aprobada") return "success";
   if (!parciales.length) return "neutral";
-  const a = parciales.reduce((x, y) => x + y, 0) / parciales.length;
+  const a = acumularParciales(esc, parciales);
   if (a < esc.aprob) return "danger";
   if (a < esc.aprob + margenDe(esc)) return "warning";
   return "success";
@@ -71,13 +84,14 @@ export type MateriaComputada = {
   parciales: number[];
 };
 
-// Réplica exacta de computeMateria(m, agendaAll) (runtime.js). Ojo: el
-// promedio (`actual`) es un PROMEDIO SIMPLE de las notas ya cargadas +
-// componentes fijos con valor — no pondera por nota_maxima de cada una
-// (eso es un modelo aparte, exclusivo del simulador de escenarios, ver
-// calcularSimulacion más abajo). Funciona porque, salvo que el usuario
-// edite `nota_maxima` a mano, cada evaluación nueva hereda esc.total como
-// su propio máximo (mismo criterio que notaMaximaDefault en runtime.js).
+// Réplica de computeMateria(m, agendaAll) (runtime.js), con una corrección:
+// `actual` es la ACUMULACIÓN de las notas ya cargadas + componentes fijos
+// con valor (ver acumularParciales) — promedio en escala "nota" (cada
+// evaluación está en la misma base 0-total), suma en "puntos"/"pct" (cada
+// evaluación es un componente parcial de un total acumulado, ej. Parcial 1
+// vale 15 y Parcial 2 vale 30 de un curso sobre 100). No pondera por
+// nota_maxima de cada una más allá de eso (eso es un modelo aparte,
+// exclusivo del simulador de escenarios, ver calcularSimulacion más abajo).
 export function computeMateria(materia: Materia, agendaAll: EventoAgenda[]): MateriaComputada {
   const items = agendaAll
     .filter((a) => a.materia_id === materia.id)
@@ -96,7 +110,7 @@ export function computeMateria(materia: Materia, agendaAll: EventoAgenda[]): Mat
   // examen, no el de la materia, y la exoneración deja de aplicar.
   if (materia.estado === "pendiente") esc = { ...esc, aprob: APROBACION_EXAMEN_PENDIENTE, exoneracion: null };
 
-  const actual = parciales.length ? parciales.reduce((a, b) => a + b, 0) / parciales.length : null;
+  const actual = parciales.length ? acumularParciales(esc, parciales) : null;
   const tone = toneDe(materia.estado, esc, parciales);
   const necesita = actual == null ? null : Math.max(0, esc.aprob - actual);
 

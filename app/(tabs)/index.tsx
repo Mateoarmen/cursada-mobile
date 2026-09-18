@@ -26,7 +26,7 @@ import {
 import { agendaDeSemestre, computeKpis, computeMateria, computeMaterias, computeProgresoSemestreActivo, formatValor, unidad } from "@/lib/materias";
 import { getSemestreActivoId, semestresOrdenados } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
-import { agendaBadgeInfo, PERSONAL_COLOR, today as agendaToday } from "@/lib/agenda";
+import { agendaBadgeInfo, esCountdownUrgente, formatCountdown, formatFechaAgenda, PERSONAL_COLOR, today as agendaToday } from "@/lib/agenda";
 import { computeProximos, type ProximoItem } from "@/lib/proximos";
 import { configurarCanalAndroid, getNotifPrefs, sincronizarNotificaciones } from "@/lib/notifications";
 
@@ -196,10 +196,17 @@ export default function InicioScreen() {
 
   // Filas de "Próximos días" — mismo color de identidad (materia fuerte o
   // PERSONAL_COLOR) y meta que usa el hero de arriba, ver renderInicio()/
-  // proximos-list en runtime.js.
+  // proximos-list en runtime.js. fecha/countdown se agregan acá (antes la
+  // fila sólo mostraba materia/hora/tipo — el título de la sección puede caer
+  // a "Este mes" o al nombre de otro mes sin que ninguna fila dijera qué día
+  // era ni cuánto faltaba, ver computeProximos).
   const proximosDiasRows = useMemo(
     () =>
       (proximos?.items ?? []).map((p: ProximoItem) => {
+        const hora = p.tipo === "materia" ? p.item.hora || undefined : p.item.todo_el_dia ? undefined : p.item.hora || undefined;
+        const fechaLabel = formatFechaAgenda(p.item.fecha, hora);
+        const countdown = formatCountdown(p.item.fecha, hora, new Date());
+        const urgente = esCountdownUrgente(p.item.fecha);
         if (p.tipo === "materia") {
           const m = materiasAll?.find((mm) => mm.id === p.item.materia_id) ?? null;
           const colorId = m?.color_id && m.color_id in materiaColors ? (m.color_id as MateriaColorId) : "gris";
@@ -208,6 +215,9 @@ export default function InicioScreen() {
             titulo: p.item.titulo,
             detalle: `${m ? m.nombre + " · " : ""}${p.item.hora ? p.item.hora + " · " : ""}${p.item.tipo}`,
             color: materiaColors[colorId].strong,
+            fechaLabel,
+            countdown,
+            urgente,
           };
         }
         return {
@@ -215,6 +225,9 @@ export default function InicioScreen() {
           titulo: p.item.titulo,
           detalle: p.item.todo_el_dia ? "Todo el día" : p.item.hora || "Personal",
           color: PERSONAL_COLOR,
+          fechaLabel,
+          countdown,
+          urgente,
         };
       }),
     [proximos, materiasAll]
@@ -504,6 +517,14 @@ export default function InicioScreen() {
                     {item.titulo}
                   </AppText>
                   <AppText style={{ fontSize: 13, color: colors.textTertiary }}>{item.detalle}</AppText>
+                </View>
+                <View style={{ alignItems: "flex-end", gap: 3 }}>
+                  <AppText mono style={{ fontSize: 11, color: colors.textFaint }}>
+                    {item.fechaLabel}
+                  </AppText>
+                  <AppText mono weight="600" style={{ fontSize: 12, color: item.urgente ? colors.warningText : colors.textFaint }}>
+                    {item.countdown}
+                  </AppText>
                 </View>
               </View>
             ))}

@@ -41,10 +41,13 @@ function materiaAbrev(nombre: string) {
 // renderDetalle() (runtime.js): aprobada / debe-rendir-examen / sin-notas /
 // vas-aprobando(-raspando) / te-faltan-X.
 function calloutDe(m: DemoMateria): { titulo: string; texto: string } {
-  // "count" son notas YA CARGADAS (evaluaciones con estado "aprobada"), no
-  // el total de ítems — de ahí depende si dice "Debés rendir examen" /
-  // "Todavía no cargaste notas" y el "con N notas cargadas" del texto.
-  const count = m.evaluaciones.filter((e) => e.estado === "aprobada").length;
+  // "count" son notas YA CARGADAS (evaluaciones con nota != null), no el
+  // total de ítems ni los ya rendidos — una evaluación puede estar
+  // "aprobada" (rendida) y seguir sin nota ("esperando nota", ver
+  // borrarNota/agendaBadgeInfo), y ese caso no cuenta como nota cargada.
+  // De este número depende si dice "Debés rendir examen" / "Todavía no
+  // cargaste notas" y el "con N notas cargadas" del texto.
+  const count = m.evaluaciones.filter((e) => e.nota != null).length;
   const aprobTxt = `${formatValor(m.escalaAprob, m.escalaTipo)}${unidad(m.escalaTipo)}`;
   const exonTxt = m.escalaExon != null ? `${formatValor(m.escalaExon, m.escalaTipo)}${unidad(m.escalaTipo)}` : null;
   const escalaTxt = escalaLabel(m.escalaTipo, m.escalaTotal).toLowerCase();
@@ -271,7 +274,11 @@ export default function MateriaDetalleScreen() {
   const simPct = sim.total > 0 ? Math.max(0, Math.min(1, sim.puntosProyectados / sim.total)) : 0;
   const simTone: Tone = sim.asegurado ? "success" : sim.imposible ? "danger" : sim.faltanAprobacion === 0 ? "success" : "warning";
 
-  const notasList = evaluaciones.filter((e) => e.estado === "aprobada");
+  // Sólo evaluaciones con nota real cargada — "aprobada" acá sólo dice
+  // "rendida", no "calificada" (ver comentario de `count` en calloutDe):
+  // una evaluación rendida sin nota todavía ("esperando nota") no debe
+  // aparecer acá mostrando un falso "0" al lado del anillo.
+  const notasList = evaluaciones.filter((e) => e.nota != null);
 
   const pendientesEvals = evaluaciones.filter((e) => e.estado === "pendiente");
   const completadasEvals = evaluaciones.filter((e) => e.estado === "aprobada");
@@ -1073,8 +1080,12 @@ function Aviso({ tone: t, texto }: { tone: Tone; texto: string }) {
 }
 
 function EvalRow({ item, materia, onPress }: { item: DemoEvaluacion; materia: DemoMateria; onPress: () => void }) {
-  const { colors } = useTheme();
+  const { colors, tone } = useTheme();
   const hecho = item.estado === "aprobada";
+  // Rendida pero sin nota todavía — mismo estado que agendaBadgeInfo
+  // "Esperando nota" en Agenda (hecho=true + nota=null, ver borrarNota):
+  // no hay que inventarle un "0" a la nota, hay que decir que falta.
+  const esperandoNota = hecho && item.nota == null;
   return (
     <PressableScale
       scaleTo={0.99}
@@ -1108,7 +1119,9 @@ function EvalRow({ item, materia, onPress }: { item: DemoEvaluacion; materia: De
         </AppText>
         {!hecho && item.fechaLabel ? <AppText style={{ fontSize: 12, color: colors.accentText }}>{item.fechaLabel}</AppText> : null}
       </View>
-      {hecho ? (
+      {esperandoNota ? (
+        <Pill label="Esperando nota" color={tone.warning.text} background={tone.warning.soft} />
+      ) : hecho ? (
         <AppText mono weight="600" style={{ fontSize: 15 }}>
           {formatValor(item.nota ?? 0, materia.escalaTipo)}
           <AppText style={{ fontSize: 12, color: colors.textTertiary }}>/{formatValor(item.notaMax, materia.escalaTipo)}</AppText>

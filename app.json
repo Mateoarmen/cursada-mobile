@@ -42,7 +42,7 @@
         }
       ],
       "expo-web-browser",
-      "expo-notifications"
+      "./plugins/withoutPushEntitlement"
     ],
     "experiments": {
       "typedRoutes": true
