@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -113,17 +113,36 @@ export default function HorarioScreen() {
     return map;
   }, [materias]);
 
+  // Tabs visibles: sólo los días con al menos un bloque cargado (ver
+  // critique — antes se mostraban las 6 tabs fijas de DIAS_BLOQUE aunque
+  // el estudiante no hubiera cargado nada). Si no hay ningún bloque
+  // todavía, fallback a las 6 igual para que el selector no desaparezca.
+  const diasVisibles = useMemo(() => {
+    const conClase = DIAS_SEMANA.filter((d) => (porDia.get(d.dia)?.length ?? 0) > 0);
+    return conClase.length > 0 ? conClase : DIAS_SEMANA;
+  }, [DIAS_SEMANA, porDia]);
+
+  const dataReady = materias !== null;
+
+  // Si el día seleccionado (default = hoy) quedó fuera de las tabs
+  // visibles, reasignarlo al primero visible.
+  useEffect(() => {
+    if (!dataReady) return;
+    if (!diasVisibles.some((d) => d.dia === diaSeleccionado)) {
+      setDiaSeleccionado(diasVisibles[0]!.dia);
+    }
+  }, [dataReady, diasVisibles, diaSeleccionado]);
+
   // Carga por día (conteo de clases) para el indicador en el selector —
-  // así la semana se lee de un vistazo desde los 6 chips, sin tener que
-  // tocar cada día (ver critique P0: Horario no podía responder "¿cómo es
-  // mi semana?").
+  // así la semana se lee de un vistazo desde los chips visibles, sin tener
+  // que tocar cada día (ver critique P0: Horario no podía responder "¿cómo
+  // es mi semana?").
   const cargaPorDia = useMemo(() => {
-    const max = Math.max(1, ...DIAS_SEMANA.map((d) => porDia.get(d.dia)?.length ?? 0));
-    return new Map(DIAS_SEMANA.map((d) => [d.dia, (porDia.get(d.dia)?.length ?? 0) / max]));
-  }, [porDia, DIAS_SEMANA]);
+    const max = Math.max(1, ...diasVisibles.map((d) => porDia.get(d.dia)?.length ?? 0));
+    return new Map(diasVisibles.map((d) => [d.dia, (porDia.get(d.dia)?.length ?? 0) / max]));
+  }, [porDia, diasVisibles]);
 
   const bloques = porDia.get(diaSeleccionado) ?? [];
-  const dataReady = materias !== null;
   const resumen = useMemo(() => {
     if (!dataReady) return "";
     if (bloques.length === 0) return "Sin clases este día";
@@ -143,7 +162,7 @@ export default function HorarioScreen() {
         </View>
 
         <View style={{ flexDirection: "row", gap: 7 }}>
-          {DIAS_SEMANA.map((d) => {
+          {diasVisibles.map((d) => {
             const active = d.dia === diaSeleccionado;
             const carga = cargaPorDia.get(d.dia) ?? 0;
             return (
