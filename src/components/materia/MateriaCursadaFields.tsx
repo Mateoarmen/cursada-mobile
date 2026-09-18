@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { TextInput, View } from "react-native";
-import { colors, estadoLabel, radii, spacing, type EstadoMateria } from "@/theme/tokens";
+import { estadoLabel, radii, spacing, type EstadoMateria } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppText, Pill, PressableScale } from "@/components/ui";
 import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
 import type { MateriaBloqueInput } from "@/lib/materias";
 import { FranjaSheet } from "./FranjaSheet";
-import { MateriaField, materiaInputStyle } from "./MateriaBasicosFields";
+import { MateriaField, makeMateriaInputStyle } from "./MateriaBasicosFields";
 
 const ESTADOS: EstadoMateria[] = ["cursando", "aprobada", "recursando", "pendiente"];
 
@@ -28,6 +29,8 @@ type Props = {
 // sheet aparte) en vez de tres selectores sueltos en la pantalla — mucho
 // menos intuitivo que un modal chico dedicado a "agregar una franja".
 export function MateriaCursadaFields({ salon, setSalon, estado, setEstado, bloques, onAgregarFranja, onQuitarFranja }: Props) {
+  const { colors } = useTheme();
+  const materiaInputStyle = makeMateriaInputStyle(colors);
   const [sheetAbierto, setSheetAbierto] = useState(false);
 
   return (

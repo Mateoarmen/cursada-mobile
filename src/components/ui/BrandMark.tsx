@@ -1,6 +1,6 @@
 import { View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { colors } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 
 type Props = { size?: number };
 
@@ -10,6 +10,7 @@ type Props = { size?: number };
 // gate de carga de sesión y el topbar/sidenav de la web — nunca una letra
 // "C" suelta, eso era un placeholder mío, no la marca real.
 export function BrandMark({ size = 30 }: Props) {
+  const { colors } = useTheme();
   const ringSize = size * 0.467;
   const borderWidth = Math.max(1.5, size * 0.087);
   return (

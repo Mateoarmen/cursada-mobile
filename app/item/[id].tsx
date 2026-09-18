@@ -4,18 +4,22 @@ import { ActivityIndicator, Alert, ScrollView, TextInput, View } from "react-nat
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
-import { colors, materiaColors, radii, spacing, tone } from "@/theme/tokens";
-import { AppIcon, AppText, BackButton, Pill, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
+import { materiaColors, radii, spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
+import { AppIcon, AppText, BackButton, MiniCalendario, Pill, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
 import { materiaComputadaToRow } from "@/lib/materias";
+import { getSemestreActivoId } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
 import { usePersonal } from "@/hooks/usePersonal";
 import { agendaBadgeInfo, formatFechaAgenda, today } from "@/lib/agenda";
 
 function Card({ children }: { children: React.ReactNode }) {
+  const { colors } = useTheme();
   return <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.xl, gap: spacing.lg }}>{children}</View>;
 }
 
 function AccionRow({ icon, label, color, onPress, first }: { icon: Parameters<typeof AppIcon>[0]["name"]; label: string; color?: string; onPress: () => void; first?: boolean }) {
+  const { colors } = useTheme();
   return (
     <PressableScale
       scaleTo={0.99}
@@ -49,6 +53,7 @@ function AccionRow({ icon, label, color, onPress, first }: { icon: Parameters<ty
 // hooks ya fetchean completos, filtrando por `id` + `kind` (recibidos por
 // query param, ver onPressItem en agenda.tsx).
 export default function ItemDetalleScreen() {
+  const { colors, tone } = useTheme();
   const { id, kind } = useLocalSearchParams<{ id: string; kind?: string }>();
   const esPersonal = kind === "personal";
 
@@ -72,8 +77,33 @@ export default function ItemDetalleScreen() {
   const materia = item?.materiaId ? materiaLookup.get(item.materiaId) ?? null : null;
   const dataReady = esPersonal ? personal.rows !== null : agenda.rows !== null && supaMaterias !== null;
 
-  const [notaAbierto, setNotaAbierto] = useState(false);
-  const [notaInput, setNotaInput] = useState("");
+  const [activeSemestreId, setActiveSemestreId] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    getSemestreActivoId()
+      .then(setActiveSemestreId)
+      .catch(() => setActiveSemestreId(null));
+  }, []);
+
+  // Selector de materia acotado al semestre activo (mismo criterio que
+  // task 12 en Agenda) — más la materia actual del ítem aunque sea de un
+  // semestre viejo, para no perderla de las opciones si se abre Editar
+  // sobre algo histórico.
+  const materiaOpts = useMemo(
+    () =>
+      (supaMaterias ?? [])
+        .filter((m) => m.semestre_id === activeSemestreId || m.id === item?.materiaId)
+        .map((m) => ({ value: m.id, label: m.nombre })),
+    [supaMaterias, activeSemestreId, item?.materiaId]
+  );
+
+  const [editando, setEditando] = useState(false);
+  const [editCalendarioAbierto, setEditCalendarioAbierto] = useState(false);
+  const [editTitulo, setEditTitulo] = useState("");
+  const [editTipo, setEditTipo] = useState("");
+  const [editFecha, setEditFecha] = useState("");
+  const [editMateriaId, setEditMateriaId] = useState("");
+  const [editNotaMax, setEditNotaMax] = useState("");
+  const [editNota, setEditNota] = useState("");
 
   const t = useMemo(() => today(), []);
 
@@ -85,17 +115,37 @@ export default function ItemDetalleScreen() {
     if (!ok) avisarError("No se pudo actualizar");
   };
 
-  const confirmarNota = async () => {
+  const abrirEditar = () => {
     if (!item) return;
-    const n = Number(notaInput.replace(",", "."));
-    if (!Number.isFinite(n)) return;
-    const ok = await agenda.asignarNota(item.id, n);
+    setEditTitulo(item.titulo);
+    setEditTipo(item.tipo);
+    setEditFecha(item.fecha);
+    setEditMateriaId(item.materiaId ?? "");
+    setEditNotaMax(item.notaMaxima != null ? String(item.notaMaxima) : "");
+    setEditNota(item.nota != null ? String(item.nota) : "");
+    setEditCalendarioAbierto(false);
+    setEditando(true);
+  };
+
+  const confirmarEditar = async () => {
+    if (!item) return;
+    const ok = await agenda.actualizar(item.id, {
+      titulo: editTitulo.trim(),
+      tipo: editTipo.trim(),
+      fecha: editFecha,
+      materia_id: editMateriaId || null,
+      nota_maxima: editNotaMax.trim() ? Number(editNotaMax.replace(",", ".")) : null,
+    });
     if (!ok) {
-      avisarError("No se pudo guardar la nota");
+      avisarError("No se pudo guardar los cambios");
       return;
     }
-    setNotaAbierto(false);
-    setNotaInput("");
+    const notaRaw = editNota.trim();
+    if (notaRaw) {
+      const n = Number(notaRaw.replace(",", "."));
+      if (Number.isFinite(n)) await agenda.asignarNota(item.id, n);
+    }
+    setEditando(false);
   };
 
   const eliminar = () => {
@@ -139,7 +189,6 @@ export default function ItemDetalleScreen() {
     ? agendaBadgeInfo({ hecho: item.hecho, itemKind: item.itemKind!, nota: item.nota, fecha: item.fecha }, t)
     : { tone: "neutral" as const, label: item.todoElDia ? "Todo el día" : "Personal" };
   const badgeTone = tone[badge.tone];
-  const puedeCargarNota = !esPersonal && item.itemKind === "evaluacion" && item.hecho && item.nota == null;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
@@ -188,30 +237,130 @@ export default function ItemDetalleScreen() {
             </View>
           </Card>
 
-          {puedeCargarNota && notaAbierto ? (
+          {!esPersonal && editando ? (
             <Card>
               <AppText weight="600" style={{ fontSize: 15 }}>
-                Asignar nota
+                Editar {item.itemKind === "evaluacion" ? "evaluación" : "tarea"}
               </AppText>
-              <TextInput
-                value={notaInput}
-                onChangeText={setNotaInput}
-                placeholder={`Nota sobre ${item.notaMaxima ?? 12}`}
-                placeholderTextColor={colors.textFaint}
-                keyboardType="decimal-pad"
-                style={{
-                  height: 48,
-                  borderRadius: radii.sm,
-                  backgroundColor: colors.bg,
-                  paddingHorizontal: spacing.lg,
-                  fontSize: 15,
-                  color: colors.text,
-                  fontFamily: "InstrumentSans_600SemiBold",
-                }}
-              />
+
+              <View style={{ gap: 6 }}>
+                <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Título</AppText>
+                <TextInput
+                  value={editTitulo}
+                  onChangeText={setEditTitulo}
+                  placeholderTextColor={colors.textFaint}
+                  style={{
+                    height: 46,
+                    borderRadius: radii.sm,
+                    backgroundColor: colors.bg,
+                    paddingHorizontal: spacing.lg,
+                    fontSize: 15,
+                    color: colors.text,
+                    fontFamily: "InstrumentSans_400Regular",
+                  }}
+                />
+              </View>
+
+              <View style={{ gap: 6 }}>
+                <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Tipo</AppText>
+                <TextInput
+                  value={editTipo}
+                  onChangeText={setEditTipo}
+                  placeholder="Ej. Parcial, Entrega, Quiz"
+                  placeholderTextColor={colors.textFaint}
+                  style={{
+                    height: 46,
+                    borderRadius: radii.sm,
+                    backgroundColor: colors.bg,
+                    paddingHorizontal: spacing.lg,
+                    fontSize: 15,
+                    color: colors.text,
+                    fontFamily: "InstrumentSans_400Regular",
+                  }}
+                />
+              </View>
+
+              <View style={{ gap: 6 }}>
+                <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Materia</AppText>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
+                  {materiaOpts.map((o) => (
+                    <PressableScale key={o.value} scaleTo={0.96} onPress={() => setEditMateriaId(o.value)}>
+                      <Pill
+                        label={o.label}
+                        color={editMateriaId === o.value ? colors.accentText : colors.textSecondary}
+                        background={editMateriaId === o.value ? colors.accentSoft : colors.surfaceSoft}
+                      />
+                    </PressableScale>
+                  ))}
+                </View>
+              </View>
+
+              <View style={{ gap: 6 }}>
+                <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Fecha</AppText>
+                <PressableScale scaleTo={0.98} onPress={() => setEditCalendarioAbierto((v) => !v)}>
+                  <Pill
+                    label={formatFechaAgenda(editFecha)}
+                    color={editCalendarioAbierto ? colors.accentText : colors.textSecondary}
+                    background={editCalendarioAbierto ? colors.accentSoft : colors.surfaceSoft}
+                  />
+                </PressableScale>
+                {editCalendarioAbierto ? (
+                  <MiniCalendario
+                    seleccionado={editFecha}
+                    onSeleccionar={(iso) => {
+                      setEditFecha(iso);
+                      setEditCalendarioAbierto(false);
+                    }}
+                  />
+                ) : null}
+              </View>
+
               <View style={{ flexDirection: "row", gap: spacing.smd }}>
-                <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setNotaAbierto(false)} />
-                <PrimaryButton label="Guardar" flex disabled={!notaInput.trim()} onPress={confirmarNota} />
+                <View style={{ flex: 1, gap: 6 }}>
+                  <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Peso (nota máxima)</AppText>
+                  <TextInput
+                    value={editNotaMax}
+                    onChangeText={setEditNotaMax}
+                    placeholder="Ej. 12"
+                    placeholderTextColor={colors.textFaint}
+                    keyboardType="decimal-pad"
+                    style={{
+                      height: 46,
+                      borderRadius: radii.sm,
+                      backgroundColor: colors.bg,
+                      paddingHorizontal: spacing.lg,
+                      fontSize: 15,
+                      color: colors.text,
+                      fontFamily: "InstrumentSans_600SemiBold",
+                    }}
+                  />
+                </View>
+                {item.itemKind === "evaluacion" ? (
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Nota</AppText>
+                    <TextInput
+                      value={editNota}
+                      onChangeText={setEditNota}
+                      placeholder="Sin cargar"
+                      placeholderTextColor={colors.textFaint}
+                      keyboardType="decimal-pad"
+                      style={{
+                        height: 46,
+                        borderRadius: radii.sm,
+                        backgroundColor: colors.bg,
+                        paddingHorizontal: spacing.lg,
+                        fontSize: 15,
+                        color: colors.text,
+                        fontFamily: "InstrumentSans_600SemiBold",
+                      }}
+                    />
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={{ flexDirection: "row", gap: spacing.smd }}>
+                <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setEditando(false)} />
+                <PrimaryButton label="Guardar" flex disabled={!editTitulo.trim()} onPress={confirmarEditar} />
               </View>
             </Card>
           ) : (
@@ -224,7 +373,7 @@ export default function ItemDetalleScreen() {
                   onPress={toggleHecho}
                 />
               ) : null}
-              {puedeCargarNota ? <AccionRow icon="create-outline" label="Asignar nota" onPress={() => setNotaAbierto(true)} /> : null}
+              {!esPersonal ? <AccionRow icon="create-outline" label="Editar" onPress={abrirEditar} /> : null}
               {materia ? (
                 <AccionRow icon="folder-outline" label="Ver materia" onPress={() => router.push(`/materia/${materia.id}`)} first={esPersonal} />
               ) : null}

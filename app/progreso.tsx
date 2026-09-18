@@ -3,7 +3,8 @@ import { Alert, Animated, ScrollView, TextInput, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { colors, easing, estadoLabel, estadoTone, materiaColors, motionDuration, radii, spacing, tone, type EstadoMateria, type MateriaColorId, type Tone } from "@/theme/tokens";
+import { easing, estadoLabel, estadoTone, materiaColors, motionDuration, radii, spacing, type EstadoMateria, type MateriaColorId, type Tone } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, Reveal, Spotlight } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { today } from "@/lib/agenda";
@@ -23,12 +24,14 @@ import {
 } from "@/lib/materias";
 import type { Materia, Semestre } from "@/types/database";
 
-const TONE_COLOR: Record<Tone, string> = {
-  success: colors.successText,
-  warning: colors.warningText,
-  danger: colors.dangerText,
-  neutral: colors.textTertiary,
-};
+function makeToneColor(colors: ReturnType<typeof useTheme>["colors"]): Record<Tone, string> {
+  return {
+    success: colors.successText,
+    warning: colors.warningText,
+    danger: colors.dangerText,
+    neutral: colors.textTertiary,
+  };
+}
 
 const ESTADOS_ORDEN: EstadoMateria[] = ["cursando", "aprobada", "recursando", "pendiente"];
 
@@ -52,6 +55,7 @@ type SemestreModalData = {
 type NotaModalData = { materiaId: string; materiaRaw: Materia; nombre: string; total: number; aprobTxt: string };
 
 function SectionTitle({ children, hint }: { children: string; hint?: string }) {
+  const { colors } = useTheme();
   return (
     <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingBottom: spacing.sm }}>
       <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
@@ -67,10 +71,12 @@ function SectionTitle({ children, hint }: { children: string; hint?: string }) {
 }
 
 function Card({ children }: { children: React.ReactNode }) {
+  const { colors } = useTheme();
   return <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.lg, gap: spacing.md }}>{children}</View>;
 }
 
 function BarraProgreso({ pct, color }: { pct: number; color: string }) {
+  const { colors } = useTheme();
   const clamped = Math.max(0, Math.min(100, pct));
   return (
     <View style={{ height: 6, borderRadius: radii.round, backgroundColor: colors.surfaceSoft, overflow: "hidden" }}>
@@ -83,13 +89,15 @@ function BarraProgreso({ pct, color }: { pct: number; color: string }) {
 // (un promedio de 38% se pintaba verde) — el color ahora refleja qué tan
 // lejos está el promedio de aprobar, mismos cortes que el resto del
 // producto usa para "en riesgo".
-function colorPorPromedio(pct: number): string {
+function colorPorPromedio(pct: number, colors: ReturnType<typeof useTheme>["colors"]): string {
   if (pct >= 70) return colors.success;
   if (pct >= 40) return colors.warning;
   return colors.danger;
 }
 
 export default function ProgresoScreen() {
+  const { colors, tone } = useTheme();
+  const TONE_COLOR = useMemo(() => makeToneColor(colors), [colors]);
   const { profile } = useOnboardingStatusContext();
   const agenda = useAgenda();
 
@@ -508,7 +516,7 @@ export default function ProgresoScreen() {
                       {s.promedio}%
                     </AppText>
                   </View>
-                  <BarraProgreso pct={s.promedio ?? 0} color={colorPorPromedio(s.promedio ?? 0)} />
+                  <BarraProgreso pct={s.promedio ?? 0} color={colorPorPromedio(s.promedio ?? 0, colors)} />
                   <AppText style={{ fontSize: 12, color: colors.textFaint }}>
                     {s.aprobadas}/{s.total} aprobadas{s.exoneradas ? ` · ${s.exoneradas} exoneradas` : ""}
                   </AppText>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
-import { colors, radii, spacing } from "@/theme/tokens";
+import { radii, spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon } from "./AppIcon";
 import { AppText } from "./AppText";
 import { BottomSheet } from "./BottomSheet";
@@ -22,6 +23,7 @@ type Props = {
 // aparecen en los dos formularios, así que el picker vive acá en vez de
 // duplicarse.
 export function PickerField({ label, value, placeholder, options, onSelect, compact }: Props) {
+  const { colors } = useTheme();
   const [open, setOpen] = useState(false);
   const { height } = useWindowDimensions();
   const selected = options.find((o) => o.value === value)?.label;

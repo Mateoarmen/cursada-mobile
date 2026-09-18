@@ -41,6 +41,7 @@ const SYMBOLS = {
   checkbox: "checkmark.square.fill",
   "square-outline": "square",
   "grid-outline": "square.grid.2x2",
+  "add-circle-outline": "plus.circle",
 } as const satisfies Record<string, SFSymbol>;
 
 export type AppIconName = keyof typeof SYMBOLS;

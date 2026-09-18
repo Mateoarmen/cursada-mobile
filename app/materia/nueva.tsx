@@ -2,7 +2,8 @@ import { useState } from "react";
 import { router } from "expo-router";
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors, spacing } from "@/theme/tokens";
+import { spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppText, BackButton, PrimaryButton, Reveal } from "@/components/ui";
 import { crearMateria } from "@/lib/materias";
 import { useMateriaFormState } from "@/hooks/useMateriaFormState";
@@ -25,6 +26,7 @@ const TITULOS: Record<Paso, string> = {
 // edición (app/materia/form.tsx) se queda en una sola pantalla porque ahí
 // ya sabés lo que hay, no hace falta que te vuelvan a guiar.
 export default function MateriaNuevaScreen() {
+  const { colors } = useTheme();
   const [pasoIdx, setPasoIdx] = useState(0);
   const [creando, setCreando] = useState(false);
   const f = useMateriaFormState();

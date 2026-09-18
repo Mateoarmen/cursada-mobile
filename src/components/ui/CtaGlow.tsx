@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { LayoutChangeEvent, StyleProp, ViewStyle } from "react-native";
 import { AccessibilityInfo, Animated, Easing, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { colors } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 
 type Props = {
   children: React.ReactNode;
@@ -18,6 +18,7 @@ type Props = {
 // recortado por este wrapper redondeado — mismo truco que ProgressRing usa
 // para el anillo circular sin soporte nativo de conic-gradient.
 export function CtaGlow({ children, radius = 12, style }: Props) {
+  const { colors } = useTheme();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const spin = useRef(new Animated.Value(0)).current;
   const [reduceMotion, setReduceMotion] = useState(false);

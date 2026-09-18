@@ -19,25 +19,72 @@ import {
   telefonoNacionalDesdeE164,
 } from "@/lib/authErrors";
 import type { University } from "@/types/database";
-import { colors, radii, spacing } from "@/theme/tokens";
-import { AppText, Avatar, BackButton, PickerField, PressableScale, PrimaryButton, Switch } from "@/components/ui";
+import { radii, spacing } from "@/theme/tokens";
+import { useTheme, type ThemePreference } from "@/theme/ThemeContext";
+import { AppIcon, AppText, Avatar, BackButton, BottomSheet, PickerField, PressableScale, PrimaryButton, Switch } from "@/components/ui";
+import { agendaDeSemestre } from "@/lib/materias";
+import { getSemestreActivoId } from "@/lib/semestres";
+import {
+  configurarCanalAndroid,
+  DEFAULT_NOTIF_PREFS,
+  ensureNotifPermission,
+  getNotifPrefs,
+  setNotifPrefs,
+  sincronizarNotificaciones,
+  type NotifPrefs,
+} from "@/lib/notifications";
+
+const APARIENCIA_OPTS: { value: ThemePreference; label: string }[] = [
+  { value: "system", label: "Sistema" },
+  { value: "light", label: "Claro" },
+  { value: "dark", label: "Oscuro" },
+];
+
+const NOTIF_ROWS: { key: keyof NotifPrefs; label: string }[] = [
+  { key: "evaluaciones", label: "Evaluaciones" },
+  { key: "tareas", label: "Tareas" },
+  { key: "clases", label: "Clases" },
+];
+
+// Re-sincroniza toda la cola de recordatorios locales con lo que haya
+// cambiado acá — Perfil no tiene ya cargados materias/agenda (a
+// diferencia de Inicio, que lo hace en cada foco), así que trae lo mínimo
+// necesario en el momento en vez de duplicar ese estado.
+async function resincronizarNotificaciones(prefs: NotifPrefs) {
+  const [{ data: materiasAll }, { data: agendaAll }, activeId] = await Promise.all([
+    supabase.from("materias").select("*"),
+    supabase.from("agenda").select("*"),
+    getSemestreActivoId(),
+  ]);
+  const materias = materiasAll ?? [];
+  const agenda = agendaAll ?? [];
+  await configurarCanalAndroid();
+  await sincronizarNotificaciones(
+    prefs,
+    agendaDeSemestre(agenda, materias, activeId),
+    materias.filter((m) => m.semestre_id === activeId)
+  );
+}
 
 const DIAS_OPTS = Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }));
 const MESES_OPTS = MESES_NACIMIENTO.map((m) => ({ value: String(m.value), label: m.label }));
 const ANIOS_OPTS = aniosNacimiento().map((y) => ({ value: String(y), label: String(y) }));
 const PAISES_OPTS = PAISES_TEL.map((p) => ({ value: p.iso, label: `${p.bandera} ${p.nombre} (${p.prefijo})` }));
 
-const inputStyle = {
-  height: 48,
-  borderRadius: radii.sm,
-  backgroundColor: colors.surface,
-  paddingHorizontal: spacing.lg,
-  fontSize: 15,
-  color: colors.text,
-  fontFamily: "InstrumentSans_400Regular",
-} as const;
+function makeInputStyle(colors: ReturnType<typeof useTheme>["colors"]) {
+  return {
+    height: 48,
+    borderRadius: radii.sm,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    fontSize: 15,
+    color: colors.text,
+    fontFamily: "InstrumentSans_400Regular",
+  } as const;
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const { colors } = useTheme();
   return (
     <View style={{ gap: 6 }}>
       <AppText weight="500" style={{ fontSize: 12, color: colors.textTertiary }}>
@@ -49,6 +96,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const { colors } = useTheme();
   return (
     <View style={{ gap: spacing.md }}>
       <AppText weight="600" style={{ fontSize: 13, letterSpacing: 0.3, color: colors.textTertiary, textTransform: "uppercase" }}>
@@ -65,14 +113,18 @@ function SettingsRow({
   onPress,
   last,
   toggle,
+  checked,
+  onToggle,
 }: {
   label: string;
   value?: string;
   onPress?: () => void;
   last?: boolean;
   toggle?: boolean;
+  checked?: boolean;
+  onToggle?: (v: boolean) => void;
 }) {
-  const [on, setOn] = useState(true);
+  const { colors } = useTheme();
   return (
     <PressableScale
       scaleTo={0.98}
@@ -92,7 +144,7 @@ function SettingsRow({
         {label}
       </AppText>
       {toggle ? (
-        <Switch value={on} onValueChange={setOn} />
+        <Switch value={!!checked} onValueChange={onToggle} />
       ) : (
         <AppText mono={!!value} style={{ fontSize: 14, color: colors.textTertiary }}>
           {value ?? "›"}
@@ -103,6 +155,30 @@ function SettingsRow({
 }
 
 export default function PerfilScreen() {
+  const { colors, preference, setPreference } = useTheme();
+  const inputStyle = useMemo(() => makeInputStyle(colors), [colors]);
+  const [aparienciaAbierta, setAparienciaAbierta] = useState(false);
+  const aparienciaLabel = APARIENCIA_OPTS.find((o) => o.value === preference)?.label ?? "Sistema";
+  const [notifPrefs, setNotifPrefsState] = useState<NotifPrefs>(DEFAULT_NOTIF_PREFS);
+
+  useEffect(() => {
+    getNotifPrefs().then(setNotifPrefsState);
+  }, []);
+
+  const handleToggleNotif = async (key: keyof NotifPrefs, next: boolean) => {
+    if (next) {
+      const permitido = await ensureNotifPermission();
+      if (!permitido) {
+        Alert.alert("Notificaciones desactivadas", "Activá los permisos de notificaciones para Cursada en Ajustes del sistema.");
+        return;
+      }
+    }
+    const updated = { ...notifPrefs, [key]: next };
+    setNotifPrefsState(updated);
+    await setNotifPrefs(updated);
+    resincronizarNotificaciones(updated).catch(() => {});
+  };
+
   const { session } = useSession();
   // Sólo se lee `profile` de acá — el `refresh()` de este contexto también
   // dispara el `loading` que usa _layout.tsx para decidir si desmontar todo
@@ -385,8 +461,25 @@ export default function PerfilScreen() {
 
           <View style={{ backgroundColor: colors.surface, borderRadius: radii.sm, overflow: "hidden" }}>
             <SettingsRow label="Semestre activo" onPress={() => router.push("/semestre-activo")} />
-            <SettingsRow label="Notificaciones" toggle />
-            <SettingsRow label="Apariencia" value="Oscuro" last />
+            <SettingsRow label="Apariencia" value={aparienciaLabel} onPress={() => setAparienciaAbierta(true)} last />
+          </View>
+
+          <View style={{ gap: spacing.sm }}>
+            <AppText weight="600" style={{ fontSize: 12, letterSpacing: 0.5, color: colors.textFaint, paddingHorizontal: spacing.xs, textTransform: "uppercase" }}>
+              Notificaciones
+            </AppText>
+            <View style={{ backgroundColor: colors.surface, borderRadius: radii.sm, overflow: "hidden" }}>
+              {NOTIF_ROWS.map((r, i) => (
+                <SettingsRow
+                  key={r.key}
+                  label={r.label}
+                  toggle
+                  checked={notifPrefs[r.key]}
+                  onToggle={(v) => handleToggleNotif(r.key, v)}
+                  last={i === NOTIF_ROWS.length - 1}
+                />
+              ))}
+            </View>
           </View>
 
           <View style={{ backgroundColor: colors.surface, borderRadius: radii.sm, overflow: "hidden" }}>
@@ -400,6 +493,35 @@ export default function PerfilScreen() {
           </AppText>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <BottomSheet visible={aparienciaAbierta} onClose={() => setAparienciaAbierta(false)}>
+        <AppText weight="600" style={{ fontSize: 17 }}>
+          Apariencia
+        </AppText>
+        {APARIENCIA_OPTS.map((o, i) => (
+          <PressableScale
+            key={o.value}
+            scaleTo={0.99}
+            onPress={() => {
+              setPreference(o.value);
+              setAparienciaAbierta(false);
+            }}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingVertical: spacing.md,
+              borderTopWidth: i === 0 ? 0 : 1,
+              borderTopColor: colors.borderFaint,
+            }}
+          >
+            <AppText weight={preference === o.value ? "600" : "400"} style={{ fontSize: 15 }}>
+              {o.label}
+            </AppText>
+            {preference === o.value ? <AppIcon name="checkmark" size={18} color={colors.accent} /> : null}
+          </PressableScale>
+        ))}
+      </BottomSheet>
     </SafeAreaView>
   );
 }

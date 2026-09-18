@@ -5,7 +5,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { useSession } from "@/hooks/useSession";
 import { OnboardingStatusProvider, useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
 import { useAppFonts } from "@/theme/useAppFonts";
-import { colors } from "@/theme/tokens";
+import { ThemeProvider, useTheme } from "@/theme/ThemeContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -44,6 +44,7 @@ function useProtectedRoute(hasSession: boolean, statusReady: boolean, needsOnboa
 
 function RootLayoutNav({ hasSession, fontsAndSessionReady }: { hasSession: boolean; fontsAndSessionReady: boolean }) {
   const status = useOnboardingStatusContext();
+  const { colors, mode } = useTheme();
   const ready = fontsAndSessionReady && !status.loading;
 
   useProtectedRoute(hasSession, ready, status.needsOnboarding);
@@ -58,7 +59,7 @@ function RootLayoutNav({ hasSession, fontsAndSessionReady }: { hasSession: boole
 
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style={mode === "light" ? "dark" : "light"} />
       <Stack
         screenOptions={{
           headerShown: false,
@@ -74,6 +75,8 @@ function RootLayoutNav({ hasSession, fontsAndSessionReady }: { hasSession: boole
         <Stack.Screen name="materia/nueva" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="perfil" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="semestre-activo" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="semestre-historial/index" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="semestre-historial/[id]" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="asistencia" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="progreso" options={{ animation: "slide_from_right" }} />
       </Stack>
@@ -86,8 +89,10 @@ export default function RootLayout() {
   const [fontsLoaded] = useAppFonts();
 
   return (
-    <OnboardingStatusProvider userId={session?.user?.id}>
-      <RootLayoutNav hasSession={!!session} fontsAndSessionReady={!loading && fontsLoaded} />
-    </OnboardingStatusProvider>
+    <ThemeProvider>
+      <OnboardingStatusProvider userId={session?.user?.id}>
+        <RootLayoutNav hasSession={!!session} fontsAndSessionReady={!loading && fontsLoaded} />
+      </OnboardingStatusProvider>
+    </ThemeProvider>
   );
 }

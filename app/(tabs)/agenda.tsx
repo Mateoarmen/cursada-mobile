@@ -4,10 +4,12 @@ import { Alert, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
-import { colors, materiaColors, radii, spacing, tone, type Tone } from "@/theme/tokens";
-import { AppIcon, AppText, BottomSheet, Fab, Pill, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
+import { materiaColors, radii, spacing, type Tone } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
+import { AppIcon, AppText, BottomSheet, Fab, MiniCalendario, Pill, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
 import type { DemoAgendaItem } from "@/data/demoContent";
 import { materiaComputadaToRow } from "@/lib/materias";
+import { getSemestreActivoId } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
 import { usePersonal } from "@/hooks/usePersonal";
 import {
@@ -69,93 +71,6 @@ function fechaQuickOptions() {
   });
 }
 
-// Calendario propio en RN puro (sin @react-native-community/datetimepicker
-// — habría requerido un build EAS/dev client nuevo para poder probarlo,
-// ver decisión con el usuario) — cubre el caso que las 4 opciones rápidas
-// de arriba no alcanzaban: una fecha cualquiera dentro del mes (ej. un
-// parcial a mitad de mes).
-const DIAS_CALENDARIO = ["L", "M", "M", "J", "V", "S", "D"];
-
-function isoDeFecha(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-// Grilla del mes con relleno inicial (null) para que el día 1 caiga en su
-// columna real de la semana (lunes primero, mismo criterio que
-// lunesDeEstaSemana() en horario.tsx).
-function celdasDelMes(mes: Date): (Date | null)[] {
-  const year = mes.getFullYear();
-  const month = mes.getMonth();
-  const offset = (new Date(year, month, 1).getDay() + 6) % 7;
-  const totalDias = new Date(year, month + 1, 0).getDate();
-  const celdas: (Date | null)[] = Array.from({ length: offset }, () => null);
-  for (let d = 1; d <= totalDias; d++) celdas.push(new Date(year, month, d));
-  return celdas;
-}
-
-function MiniCalendario({ seleccionado, onSeleccionar }: { seleccionado: string; onSeleccionar: (iso: string) => void }) {
-  const [mes, setMes] = useState(() => parseISODate(seleccionado));
-  const celdas = useMemo(() => celdasDelMes(mes), [mes]);
-  const hoyIso = isoToday();
-  const nombreMes = MESES_LARGOS[mes.getMonth()]!;
-
-  return (
-    <View style={{ backgroundColor: colors.bg, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <PressableScale scaleTo={0.9} hitSlop={8} onPress={() => setMes((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}>
-          <AppIcon name="chevron-back" size={16} color={colors.text} />
-        </PressableScale>
-        <AppText weight="600" style={{ fontSize: 13 }}>
-          {nombreMes.charAt(0).toUpperCase() + nombreMes.slice(1)} {mes.getFullYear()}
-        </AppText>
-        <PressableScale scaleTo={0.9} hitSlop={8} onPress={() => setMes((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}>
-          <AppIcon name="chevron-forward" size={16} color={colors.text} />
-        </PressableScale>
-      </View>
-      <View style={{ flexDirection: "row" }}>
-        {DIAS_CALENDARIO.map((d, i) => (
-          <AppText key={i} weight="600" style={{ flex: 1, textAlign: "center", fontSize: 10, color: colors.textFaint }}>
-            {d}
-          </AppText>
-        ))}
-      </View>
-      <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-        {celdas.map((fecha, i) => {
-          if (!fecha) return <View key={i} style={{ width: "14.28%", height: 34 }} />;
-          const iso = isoDeFecha(fecha);
-          const activo = iso === seleccionado;
-          const esHoy = iso === hoyIso;
-          return (
-            <PressableScale
-              key={i}
-              scaleTo={0.9}
-              onPress={() => onSeleccionar(iso)}
-              style={{ width: "14.28%", height: 34, alignItems: "center", justifyContent: "center" }}
-            >
-              <View
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 14,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: activo ? colors.accent : "transparent",
-                  borderWidth: !activo && esHoy ? 1 : 0,
-                  borderColor: colors.accent,
-                }}
-              >
-                <AppText weight={activo ? "700" : "500"} style={{ fontSize: 12, color: activo ? colors.white : colors.text }}>
-                  {fecha.getDate()}
-                </AppText>
-              </View>
-            </PressableScale>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
 function AgendaRow({
   item,
   ocultarMateriaChip,
@@ -169,6 +84,7 @@ function AgendaRow({
   onToggleHecho: () => void;
   onPress: () => void;
 }) {
+  const { colors, tone } = useTheme();
   const esMateria = item.kind === "materia";
   const badge = esMateria
     ? agendaBadgeInfo({ hecho: item.hecho, itemKind: item.itemKind!, nota: item.nota, fecha: item.fecha }, t)
@@ -275,6 +191,7 @@ function AgendaGroup({
   onToggleHecho: (id: string) => void;
   onPressItem: (item: EnrichedItem) => void;
 }) {
+  const { colors } = useTheme();
   if (!items.length) return null;
   const distintosMeses = new Set(items.map((i) => monthKey(i.fecha))).size;
   const mostrarDivisores = !!subagruparPorMes && distintosMeses > 1;
@@ -321,6 +238,7 @@ function AgendaGroup({
 }
 
 export default function AgendaScreen() {
+  const { colors } = useTheme();
   const agenda = useAgenda();
   // Materias reales del usuario, sin fallback a demoMaterias (ver "el hack
   // a eliminar" en materias.tsx) — se usan sólo para el picker de "+ Nueva
@@ -333,6 +251,21 @@ export default function AgendaScreen() {
       .then(({ data }) => setSupaMaterias(data ?? []));
   }, []);
   const materiasRows = useMemo(() => (supaMaterias ?? []).map((m) => materiaComputadaToRow(m, agenda.rows ?? [])), [supaMaterias, agenda.rows]);
+
+  // Semestre activo — el picker de "+ Nueva evaluación/tarea" sólo debe
+  // ofrecer materias que se están cursando ahora, no todo el histórico
+  // (ver Filtros, que sí se queda con materiasRows completo a propósito:
+  // filtrar la vista de Agenda por una materia vieja sigue teniendo sentido).
+  const [activeSemestreId, setActiveSemestreId] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    getSemestreActivoId()
+      .then(setActiveSemestreId)
+      .catch(() => setActiveSemestreId(null));
+  }, []);
+  const materiasRowsActivo = useMemo(
+    () => (supaMaterias ?? []).filter((m) => m.semestre_id === activeSemestreId).map((m) => materiaComputadaToRow(m, agenda.rows ?? [])),
+    [supaMaterias, activeSemestreId, agenda.rows]
+  );
 
   // Ítems "materia" (evaluación/tarea) salen de la tabla real `agenda`, sin
   // fallback a datos de muestra (mismo criterio que Detalle de materia).
@@ -356,6 +289,8 @@ export default function AgendaScreen() {
   const [creTodoElDia, setCreTodoElDia] = useState(true);
   const [creFecha, setCreFecha] = useState(isoToday());
   const [calendarioAbierto, setCalendarioAbierto] = useState(false);
+  const [creConHorario, setCreConHorario] = useState(false);
+  const [creHora, setCreHora] = useState("");
 
   const t = useMemo(() => today(), []);
   const materiaLookup = useMemo(() => new Map(materiasRows.map((m) => [m.id, m])), [materiasRows]);
@@ -433,10 +368,12 @@ export default function AgendaScreen() {
   const abrirCrear = (modo: typeof crearModo) => {
     setNuevoSheetOpen(false);
     setCreTitulo("");
-    setCreMateriaId(materiasRows[0]?.id ?? "");
+    setCreMateriaId(materiasRowsActivo[0]?.id ?? "");
     setCreTodoElDia(true);
     setCreFecha(isoToday());
     setCalendarioAbierto(false);
+    setCreConHorario(false);
+    setCreHora("");
     setCrearModo(modo);
   };
 
@@ -452,7 +389,8 @@ export default function AgendaScreen() {
       return;
     }
     const tipo = crearModo.itemKind === "evaluacion" ? "Parcial" : "Entrega";
-    const ok = await agenda.crear({ materiaId: creMateriaId, kind: crearModo.itemKind, tipo, titulo: creTitulo.trim(), fecha: creFecha });
+    const horaValida = creConHorario && /^([01]?\d|2[0-3]):[0-5]\d$/.test(creHora.trim()) ? creHora.trim() : undefined;
+    const ok = await agenda.crear({ materiaId: creMateriaId, kind: crearModo.itemKind, tipo, titulo: creTitulo.trim(), fecha: creFecha, hora: horaValida });
     if (!ok) {
       avisarError("No se pudo crear");
       return;
@@ -761,18 +699,22 @@ export default function AgendaScreen() {
           }}
         />
         {crearModo?.kind === "materia" ? (
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
-            {materiasRows.map((m) => (
-              <PressableScale key={m.id} scaleTo={0.96} onPress={() => setCreMateriaId(m.id)}>
-                <Pill
-                  label={m.nombre}
-                  color={creMateriaId === m.id ? materiaColors[m.colorId].strong : colors.textSecondary}
-                  background={creMateriaId === m.id ? materiaColors[m.colorId].soft : colors.surfaceSoft}
-                  style={{ height: 32, paddingHorizontal: 13 }}
-                />
-              </PressableScale>
-            ))}
-          </View>
+          materiasRowsActivo.length ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
+              {materiasRowsActivo.map((m) => (
+                <PressableScale key={m.id} scaleTo={0.96} onPress={() => setCreMateriaId(m.id)}>
+                  <Pill
+                    label={m.nombre}
+                    color={creMateriaId === m.id ? materiaColors[m.colorId].strong : colors.textSecondary}
+                    background={creMateriaId === m.id ? materiaColors[m.colorId].soft : colors.surfaceSoft}
+                    style={{ height: 32, paddingHorizontal: 13 }}
+                  />
+                </PressableScale>
+              ))}
+            </View>
+          ) : (
+            <AppText style={{ fontSize: 13, color: colors.textTertiary }}>No tenés materias cargadas en el semestre activo todavía.</AppText>
+          )
         ) : (
           <PressableScale scaleTo={0.98} onPress={() => setCreTodoElDia((v) => !v)}>
             <Pill
@@ -818,6 +760,43 @@ export default function AgendaScreen() {
               setCalendarioAbierto(false);
             }}
           />
+        ) : null}
+        {crearModo?.kind === "materia" ? (
+          <View style={{ gap: spacing.sm }}>
+            <PressableScale
+              scaleTo={0.98}
+              onPress={() => {
+                setCreConHorario((v) => !v);
+                if (creConHorario) setCreHora("");
+              }}
+            >
+              <Pill
+                label={creConHorario ? "Con horario" : "Sin horario"}
+                color={creConHorario ? colors.accentText : colors.textSecondary}
+                background={creConHorario ? colors.accentSoft : colors.surfaceSoft}
+                style={{ height: 32, paddingHorizontal: 13 }}
+              />
+            </PressableScale>
+            {creConHorario ? (
+              <TextInput
+                value={creHora}
+                onChangeText={setCreHora}
+                placeholder="HH:MM"
+                placeholderTextColor={colors.textFaint}
+                keyboardType="numbers-and-punctuation"
+                maxLength={5}
+                style={{
+                  height: 46,
+                  borderRadius: radii.sm,
+                  backgroundColor: colors.bg,
+                  paddingHorizontal: spacing.lg,
+                  fontSize: 15,
+                  color: colors.text,
+                  fontFamily: "InstrumentSans_600SemiBold",
+                }}
+              />
+            ) : null}
+          </View>
         ) : null}
         <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
           <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setCrearModo(null)} />

@@ -1,5 +1,6 @@
 import type { StyleProp, ViewStyle } from "react-native";
-import { colors, radii } from "@/theme/tokens";
+import { radii } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppText } from "./AppText";
 import { PressableScale } from "./PressableScale";
 
@@ -14,15 +15,19 @@ type Props = {
   disabled?: boolean;
 };
 
-const variantStyles: Record<Variant, { bg: string; fg: string; border?: string }> = {
-  accent: { bg: colors.accent, fg: colors.white },
-  light: { bg: colors.text, fg: colors.bg },
-  outline: { bg: "transparent", fg: colors.text, border: "rgba(255,255,255,0.14)" },
-  ghost: { bg: colors.surfaceSoft, fg: colors.text },
-  danger: { bg: colors.dangerSofter, fg: colors.dangerText },
-};
+function makeVariantStyles(colors: ReturnType<typeof useTheme>["colors"]): Record<Variant, { bg: string; fg: string; border?: string }> {
+  return {
+    accent: { bg: colors.accent, fg: colors.white },
+    light: { bg: colors.text, fg: colors.bg },
+    outline: { bg: "transparent", fg: colors.text, border: "rgba(255,255,255,0.14)" },
+    ghost: { bg: colors.surfaceSoft, fg: colors.text },
+    danger: { bg: colors.dangerSofter, fg: colors.dangerText },
+  };
+}
 
 export function PrimaryButton({ label, onPress, variant = "accent", style, flex, disabled }: Props) {
+  const { colors } = useTheme();
+  const variantStyles = makeVariantStyles(colors);
   const v = variantStyles[variant];
   return (
     <PressableScale

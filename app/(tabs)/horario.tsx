@@ -4,7 +4,8 @@ import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
-import { colors, materiaColors, radii, shadows, spacing, type MateriaColorId } from "@/theme/tokens";
+import { materiaColors, radii, spacing, type MateriaColorId } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, PressableScale, Reveal, Spotlight } from "@/components/ui";
 import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
 import { getSemestreActivoId } from "@/lib/semestres";
@@ -15,6 +16,7 @@ type BloqueDelDia = {
   horaInicio: string;
   horaFin: string;
   ubicacion: string;
+  docente: string;
   accentColor: string;
   accentSoft: string;
   ini: number;
@@ -45,7 +47,22 @@ function diaDeHoy() {
   return g === 0 ? 1 : g; // sin columna de domingo — cae en lunes, como designDia() en runtime.js
 }
 
+// Umbral para no dibujar un "hueco" por ruido de redondeo entre un bloque
+// que termina y el siguiente que arranca "pegado" (ej. 10.999 vs 11) — por
+// debajo de 5 minutos se sigue tratando como back-to-back.
+const HUECO_MIN_HORAS = 5 / 60;
+
+function formatDuracionHueco(horas: number): string {
+  const totalMin = Math.round(horas * 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m} min libres`;
+  if (m === 0) return `${h} h libres`;
+  return `${h} h ${m} min libres`;
+}
+
 export default function HorarioScreen() {
+  const { colors, shadows } = useTheme();
   const [diaSeleccionado, setDiaSeleccionado] = useState(diaDeHoy());
   const [materias, setMaterias] = useState<Materia[] | null>(null);
   const [fetchError, setFetchError] = useState(false);
@@ -101,6 +118,7 @@ export default function HorarioScreen() {
           horaInicio: horaTexto(b.ini),
           horaFin: horaTexto(b.fin),
           ubicacion: m.salon || "Sin salón asignado",
+          docente: m.doc || "",
           accentColor: accent.strong,
           accentSoft: accent.soft,
           ini: b.ini,
@@ -251,33 +269,48 @@ export default function HorarioScreen() {
           <Reveal>
             {bloques.map((b, i) => {
               const alturaBloque = Math.max(ALTURA_MIN_BLOQUE, (b.fin - b.ini) * PX_POR_HORA);
+              const prev = bloques[i - 1];
+              const gap = prev ? b.ini - prev.fin : 0;
+              const hayHueco = i > 0 && gap > HUECO_MIN_HORAS;
               return (
-                <View key={b.id} style={{ flexDirection: "row", gap: spacing.lg, paddingTop: i === 0 ? spacing.sm : spacing.md + 2 }}>
-                  <AppText mono style={{ width: 44, fontSize: 13, color: colors.textTertiary }}>
-                    {b.horaInicio}
-                  </AppText>
-                  <View
-                    style={{
-                      flex: 1,
-                      backgroundColor: b.accentSoft,
-                      borderLeftWidth: 3,
-                      borderLeftColor: b.accentColor,
-                      borderRadius: 0,
-                      borderTopRightRadius: radii.md,
-                      borderBottomRightRadius: radii.md,
-                      padding: spacing.lg,
-                      gap: 5,
-                      minHeight: alturaBloque,
-                      justifyContent: "center",
-                    }}
-                  >
-                    <AppText weight="600" style={{ fontSize: 16, letterSpacing: -0.1 }}>
-                      {b.materiaNombre}
+                <View key={b.id}>
+                  {hayHueco ? (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingLeft: 44 + spacing.lg, paddingVertical: spacing.md }}>
+                      <View style={{ flex: 1, height: 0, borderTopWidth: 1, borderStyle: "dashed", borderTopColor: colors.borderSoft }} />
+                      <AppText style={{ fontSize: 11, color: colors.textFaint }}>{formatDuracionHueco(gap)}</AppText>
+                      <View style={{ flex: 1, height: 0, borderTopWidth: 1, borderStyle: "dashed", borderTopColor: colors.borderSoft }} />
+                    </View>
+                  ) : null}
+                  <View style={{ flexDirection: "row", gap: spacing.lg, paddingTop: i === 0 ? spacing.sm : hayHueco ? 0 : spacing.md + 2 }}>
+                    <AppText mono style={{ width: 44, fontSize: 13, color: colors.textTertiary }}>
+                      {b.horaInicio}
                     </AppText>
-                    <AppText mono style={{ fontSize: 13, color: colors.textSecondary }}>
-                      {b.horaInicio}–{b.horaFin}
-                    </AppText>
-                    <AppText style={{ fontSize: 13, color: colors.textTertiary }}>{b.ubicacion}</AppText>
+                    <View
+                      style={{
+                        flex: 1,
+                        backgroundColor: b.accentSoft,
+                        borderLeftWidth: 3,
+                        borderLeftColor: b.accentColor,
+                        borderRadius: 0,
+                        borderTopRightRadius: radii.md,
+                        borderBottomRightRadius: radii.md,
+                        padding: spacing.lg,
+                        gap: 5,
+                        minHeight: alturaBloque,
+                        justifyContent: "center",
+                      }}
+                    >
+                      <AppText weight="600" style={{ fontSize: 16, letterSpacing: -0.1 }}>
+                        {b.materiaNombre}
+                      </AppText>
+                      <AppText mono style={{ fontSize: 13, color: colors.textSecondary }}>
+                        {b.horaInicio}–{b.horaFin}
+                      </AppText>
+                      <AppText style={{ fontSize: 13, color: colors.textTertiary }}>
+                        {b.ubicacion}
+                        {b.docente ? ` · ${b.docente}` : ""}
+                      </AppText>
+                    </View>
                   </View>
                 </View>
               );

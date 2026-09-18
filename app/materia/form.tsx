@@ -4,7 +4,8 @@ import { Alert, KeyboardAvoidingView, Platform, ScrollView, View } from "react-n
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
-import { colors, spacing } from "@/theme/tokens";
+import { spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, BackButton, PressableScale, PrimaryButton, Reveal } from "@/components/ui";
 import { actualizarMateria, eliminarMateria } from "@/lib/materias";
 import { useMateriaFormState } from "@/hooks/useMateriaFormState";
@@ -13,6 +14,7 @@ import { MateriaCursadaFields } from "@/components/materia/MateriaCursadaFields"
 import { MateriaCalificacionFields } from "@/components/materia/MateriaCalificacionFields";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const { colors } = useTheme();
   return (
     <View style={{ gap: spacing.md }}>
       <AppText weight="600" style={{ fontSize: 13, letterSpacing: 0.3, color: colors.textTertiary, textTransform: "uppercase" }}>
@@ -29,6 +31,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // falta guiarte de nuevo. Comparte estado/validaciones con el alta vía
 // useMateriaFormState.
 export default function MateriaFormScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [cargando, setCargando] = useState(true);
   const [cargaError, setCargaError] = useState(false);

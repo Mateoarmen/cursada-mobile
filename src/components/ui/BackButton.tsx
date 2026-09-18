@@ -1,9 +1,11 @@
 import { router } from "expo-router";
-import { colors, radii } from "@/theme/tokens";
+import { radii } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppText } from "./AppText";
 import { PressableScale } from "./PressableScale";
 
 export function BackButton({ onPress }: { onPress?: () => void }) {
+  const { colors } = useTheme();
   return (
     <PressableScale
       scaleTo={0.9}

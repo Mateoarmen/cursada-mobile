@@ -1,5 +1,6 @@
 import { Text, type TextProps } from "react-native";
-import { colors, fonts } from "@/theme/tokens";
+import { fonts } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 
 type Weight = "400" | "500" | "600" | "700";
 
@@ -19,6 +20,7 @@ const weightToFamily: Record<Weight, string> = {
 // para cifras/horas) en vez de la fuente de sistema — RN no soporta
 // font-weight numérico sobre una sola familia variable como hace la web.
 export function AppText({ style, weight = "400", mono = false, ...rest }: Props) {
+  const { colors } = useTheme();
   const fontFamily = mono ? fonts.mono : weightToFamily[weight];
   return <Text style={[{ fontFamily, color: colors.text }, style]} {...rest} />;
 }

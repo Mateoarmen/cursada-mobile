@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors, radii, spacing, tone } from "@/theme/tokens";
+import { radii, spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, BackButton, PressableScale, ProgressRing, Reveal, Spotlight } from "@/components/ui";
 import { AsistenciaRow } from "@/components/AsistenciaRow";
 import { supabase } from "@/lib/supabase";
@@ -33,6 +34,7 @@ function hoy(): Date {
 }
 
 function Card({ children }: { children: React.ReactNode }) {
+  const { colors } = useTheme();
   return <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.lg, gap: spacing.md }}>{children}</View>;
 }
 
@@ -45,6 +47,7 @@ function SectionTitle({ children }: { children: string }) {
 }
 
 function BarraProgreso({ pct, color }: { pct: number; color: string }) {
+  const { colors } = useTheme();
   const clamped = Math.max(0, Math.min(100, pct));
   return (
     <View style={{ height: 6, borderRadius: radii.round, backgroundColor: colors.surfaceSoft, overflow: "hidden" }}>
@@ -54,6 +57,7 @@ function BarraProgreso({ pct, color }: { pct: number; color: string }) {
 }
 
 export default function AsistenciaScreen() {
+  const { colors, tone } = useTheme();
   const [rango, setRango] = useState<AsistenciaRango>("semana");
   const [fecha, setFecha] = useState<Date>(hoy());
   const [supaMaterias, setSupaMaterias] = useState<Materia[] | null>(null);

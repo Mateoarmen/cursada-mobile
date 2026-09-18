@@ -4,16 +4,31 @@ import { ActivityIndicator, Alert, Animated, LayoutAnimation, ScrollView, TextIn
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
-import { colors, easing, estadoLabel, estadoTone, materiaColors, motionDuration, radii, spacing, tone, type Tone } from "@/theme/tokens";
+import { easing, estadoLabel, estadoTone, materiaColors, motionDuration, radii, spacing, type Tone } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, RangeSlider, type AppIconName } from "@/components/ui";
 import type { DemoAsistenciaRango, DemoEvaluacion, DemoMateria } from "@/data/demoContent";
 import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
 import { today } from "@/lib/agenda";
-import { calcularSimulacion, escalaLabel, formatValor, materiaComputadaToRow, resolverPendienteSiCorresponde, unidad, type ComponenteFijoSim, type EvaluacionSim } from "@/lib/materias";
+import {
+  calcularSimulacion,
+  escalaLabel,
+  formatValor,
+  guardarComponentesFijos,
+  materiaComputadaToRow,
+  resolverPendienteSiCorresponde,
+  unidad,
+  type ComponenteFijoSim,
+  type EvaluacionSim,
+} from "@/lib/materias";
 import { useAgenda } from "@/hooks/useAgenda";
 
 function isoToday() {
   return today().toISOString().slice(0, 10);
+}
+
+function nuevoIdLocal() {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
 type RangoAsistencia = "semana" | "mes" | "semestre";
@@ -68,6 +83,7 @@ function Card({ children, compact }: { children: React.ReactNode; compact?: bool
   // horario) para que no pese lo mismo que Calificación/Evaluaciones (ver
   // critique P2). Sigue sin sombra/borde — la única diferenciación
   // permitida en el sistema "flat" es padding/radio, no elevación.
+  const { colors } = useTheme();
   return (
     <View
       style={{
@@ -96,6 +112,7 @@ const CALLOUT_ICON: Record<Tone, AppIconName> = {
 // ícono + tipografía de título — sigue sin sombra/glass (el sistema flat
 // no cambia), la distinción es de tamaño/posición, no de elevación.
 function Callout({ tone: t, titulo, texto }: { tone: Tone; titulo: string; texto: string }) {
+  const { colors, tone } = useTheme();
   const c = tone[t];
   return (
     <View
@@ -122,6 +139,7 @@ function Callout({ tone: t, titulo, texto }: { tone: Tone; titulo: string; texto
 }
 
 function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: string }) {
+  const { colors } = useTheme();
   return (
     <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" }}>
       <AppText weight="600" style={{ fontSize: 17, letterSpacing: -0.2 }}>
@@ -137,7 +155,8 @@ function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: st
 }
 
 export default function MateriaDetalleScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { colors, tone } = useTheme();
+  const { id, evaluacionId } = useLocalSearchParams<{ id: string; evaluacionId?: string }>();
   const [supaMateria, setSupaMateria] = useState<Materia | null>(null);
   const [cargando, setCargando] = useState(true);
   const [simuladorAbierto, setSimuladorAbierto] = useState(false);
@@ -146,6 +165,14 @@ export default function MateriaDetalleScreen() {
   const [cargarNotaAbierto, setCargarNotaAbierto] = useState(false);
   const [notaInputs, setNotaInputs] = useState<Record<string, string>>({});
   const [accionItem, setAccionItem] = useState<DemoEvaluacion | null>(null);
+  const [editarNotaItem, setEditarNotaItem] = useState<DemoEvaluacion | null>(null);
+  const abrioNotaDesdeParamRef = useRef(false);
+  const [editarNotaValor, setEditarNotaValor] = useState("");
+  const [agregarFijoAbierto, setAgregarFijoAbierto] = useState(false);
+  const [agregarFijoTitulo, setAgregarFijoTitulo] = useState("");
+  const [agregarFijoPuntaje, setAgregarFijoPuntaje] = useState("");
+  const [cargarFijoItem, setCargarFijoItem] = useState<{ id: string; titulo: string; puntajeMax: number; valor: number | null } | null>(null);
+  const [cargarFijoValor, setCargarFijoValor] = useState("");
   const [crearItemTipo, setCrearItemTipo] = useState<"evaluacion" | "tarea" | null>(null);
   const [crearItemTitulo, setCrearItemTitulo] = useState("");
   // Rotación del chevron de "Simular escenario" (0 = cerrado, 1 = abierto,
@@ -193,6 +220,21 @@ export default function MateriaDetalleScreen() {
   // fallback quedó eliminado, tapaba tanto la falta de cálculo real como
   // una materia inexistente/todavía-cargando con datos de muestra.
   const materia = useMemo<DemoMateria | null>(() => (supaMateria ? materiaComputadaToRow(supaMateria, agenda.rows ?? []) : null), [supaMateria, agenda.rows]);
+
+  // Llegada desde el widget "Esperando nota" de Inicio (?evaluacionId=...)
+  // — abre directo el sheet de cargar/editar nota en vez de dejar al
+  // usuario buscar la fila. Sólo una vez por navegación (el ref evita
+  // reabrirlo en cada refetch de foco mientras el sheet ya está abierto o
+  // el usuario lo cerró).
+  useEffect(() => {
+    if (!materia || !evaluacionId || abrioNotaDesdeParamRef.current) return;
+    const item = materia.evaluaciones.find((e) => e.id === evaluacionId);
+    if (item) {
+      abrioNotaDesdeParamRef.current = true;
+      setEditarNotaValor(String(item.nota ?? ""));
+      setEditarNotaItem(item);
+    }
+  }, [materia, evaluacionId]);
 
   if (!materia) {
     return (
@@ -294,6 +336,63 @@ export default function MateriaDetalleScreen() {
         Alert.alert(resultado.promovida ? "¡Aprobada!" : "Nota cargada", resultado.mensaje);
         if (resultado.promovida) fetchMateria();
       }
+    }
+  };
+
+  const guardarNotaEditada = async () => {
+    if (!editarNotaItem) return;
+    const raw = editarNotaValor.trim();
+    if (!raw) return;
+    const n = Math.max(0, Math.min(editarNotaItem.notaMax, Number(raw.replace(",", "."))));
+    if (Number.isNaN(n)) return;
+    const ok = await agenda.asignarNota(editarNotaItem.id, n);
+    if (!ok) {
+      avisarError("No se pudo guardar la nota");
+      return;
+    }
+    setEditarNotaItem(null);
+  };
+
+  const abrirAgregarFijo = () => {
+    setAgregarFijoTitulo("");
+    setAgregarFijoPuntaje("");
+    setAgregarFijoAbierto(true);
+  };
+
+  const confirmarAgregarFijo = async () => {
+    if (!supaMateria) return;
+    const titulo = agregarFijoTitulo.trim();
+    const puntajeMax = Number(agregarFijoPuntaje.replace(",", "."));
+    if (!titulo || !Number.isFinite(puntajeMax) || puntajeMax <= 0) return;
+    const existentes = supaMateria.componentes_fijos ?? [];
+    const actualizados = [...existentes, { id: nuevoIdLocal(), titulo, puntajeMax, valor: null }];
+    try {
+      const data = await guardarComponentesFijos(supaMateria.id, actualizados);
+      setSupaMateria(data);
+      setAgregarFijoAbierto(false);
+    } catch {
+      avisarError("No se pudo agregar el punto fijo");
+    }
+  };
+
+  const abrirCargarFijo = (c: { id: string; titulo: string; puntajeMax: number; valor: number | null }) => {
+    setCargarFijoValor(c.valor != null ? String(c.valor) : "");
+    setCargarFijoItem(c);
+  };
+
+  const confirmarCargarFijo = async () => {
+    if (!supaMateria || !cargarFijoItem) return;
+    const raw = cargarFijoValor.trim();
+    const valor = raw ? Math.max(0, Math.min(cargarFijoItem.puntajeMax, Number(raw.replace(",", ".")))) : null;
+    if (raw && Number.isNaN(valor)) return;
+    const existentes = supaMateria.componentes_fijos ?? [];
+    const actualizados = existentes.map((c) => (c.id === cargarFijoItem.id ? { ...c, valor } : c));
+    try {
+      const data = await guardarComponentesFijos(supaMateria.id, actualizados);
+      setSupaMateria(data);
+      setCargarFijoItem(null);
+    } catch {
+      avisarError("No se pudo guardar el punto fijo");
     }
   };
 
@@ -428,24 +527,43 @@ export default function MateriaDetalleScreen() {
             <PrimaryButton label="Cambiar escala" variant="ghost" flex onPress={() => stub("Cambiar escala y aprobación")} />
           </View>
 
-          {materia.componentesFijos.length ? (
-            <View style={{ gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderFaint }}>
+          <View style={{ gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderFaint }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
               <AppText weight="600" style={{ fontSize: 12, letterSpacing: 0.5, textTransform: "uppercase", color: colors.textFaint }}>
                 Puntos fijos del curso
               </AppText>
-              <AppText style={{ fontSize: 12, color: colors.textTertiary, lineHeight: 16 }}>
-                No tienen fecha ni son una tarea — cargalos vos cuando el profesor te los dé.
-              </AppText>
-              {materia.componentesFijos.map((c) => (
-                <View key={c.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                  <AppText style={{ fontSize: 13, color: colors.textSecondary }}>{c.titulo}</AppText>
-                  <AppText mono weight="600" style={{ fontSize: 13 }}>
-                    {c.valor != null ? `${c.valor}/${c.puntajeMax}` : `— /${c.puntajeMax}`}
-                  </AppText>
-                </View>
-              ))}
+              <PressableScale scaleTo={0.95} onPress={abrirAgregarFijo} hitSlop={8} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <AppIcon name="add-circle-outline" size={16} color={colors.accentText} />
+                <AppText weight="600" style={{ fontSize: 12, color: colors.accentText }}>
+                  Agregar
+                </AppText>
+              </PressableScale>
             </View>
-          ) : null}
+            <AppText style={{ fontSize: 12, color: colors.textTertiary, lineHeight: 16 }}>
+              No tienen fecha ni son una tarea — cargalos vos cuando el profesor te los dé (asistencia, entregas, participación).
+            </AppText>
+            {materia.componentesFijos.length ? (
+              materia.componentesFijos.map((c) => (
+                <PressableScale
+                  key={c.id}
+                  scaleTo={0.99}
+                  onPress={() => abrirCargarFijo(c)}
+                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 2 }}
+                >
+                  <AppText style={{ fontSize: 13, color: colors.textSecondary }}>{c.titulo}</AppText>
+                  {c.valor != null ? (
+                    <AppText mono weight="600" style={{ fontSize: 13 }}>
+                      {c.valor}/{c.puntajeMax}
+                    </AppText>
+                  ) : (
+                    <Pill label="Cargar valor" color={colors.accentText} background={colors.accentSoft} />
+                  )}
+                </PressableScale>
+              ))
+            ) : (
+              <AppText style={{ fontSize: 12, color: colors.textFaint }}>Todavía no cargaste ninguno.</AppText>
+            )}
+          </View>
 
           {haySimulable ? (
             <PressableScale scaleTo={0.98} onPress={toggleSimulador} accessibilityState={{ expanded: simuladorAbierto }}>
@@ -714,6 +832,135 @@ export default function MateriaDetalleScreen() {
         </View>
       </BottomSheet>
 
+      {/* Editar nota */}
+      <BottomSheet visible={!!editarNotaItem} onClose={() => setEditarNotaItem(null)}>
+        <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
+          Editar nota
+        </AppText>
+        {editarNotaItem ? (
+          <View style={{ gap: 6 }}>
+            <AppText style={{ fontSize: 13, color: colors.textSecondary }} numberOfLines={1}>
+              {editarNotaItem.nombre}
+            </AppText>
+            <TextInput
+              value={editarNotaValor}
+              onChangeText={setEditarNotaValor}
+              placeholder={`Nota sobre ${editarNotaItem.notaMax}`}
+              placeholderTextColor={colors.textFaint}
+              keyboardType="decimal-pad"
+              autoFocus
+              style={{
+                height: 46,
+                borderRadius: radii.sm,
+                backgroundColor: colors.bg,
+                paddingHorizontal: spacing.lg,
+                fontSize: 15,
+                color: colors.text,
+                fontFamily: "InstrumentSans_600SemiBold",
+              }}
+            />
+          </View>
+        ) : null}
+        <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
+          <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setEditarNotaItem(null)} />
+          <PrimaryButton label="Guardar" flex disabled={!editarNotaValor.trim()} onPress={guardarNotaEditada} />
+        </View>
+      </BottomSheet>
+
+      {/* Agregar punto fijo */}
+      <BottomSheet visible={agregarFijoAbierto} onClose={() => setAgregarFijoAbierto(false)}>
+        <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
+          Agregar punto fijo
+        </AppText>
+        <AppText style={{ fontSize: 12, color: colors.textTertiary, lineHeight: 16 }}>
+          Puntaje que suma a la nota final pero no depende de una evaluación — asistencia, entregas, participación.
+        </AppText>
+        <View style={{ gap: spacing.md }}>
+          <View style={{ gap: 6 }}>
+            <AppText style={{ fontSize: 13, color: colors.textSecondary }}>Título</AppText>
+            <TextInput
+              value={agregarFijoTitulo}
+              onChangeText={setAgregarFijoTitulo}
+              placeholder="Ej. Asistencia"
+              placeholderTextColor={colors.textFaint}
+              autoFocus
+              style={{
+                height: 46,
+                borderRadius: radii.sm,
+                backgroundColor: colors.bg,
+                paddingHorizontal: spacing.lg,
+                fontSize: 15,
+                color: colors.text,
+                fontFamily: "InstrumentSans_400Regular",
+              }}
+            />
+          </View>
+          <View style={{ gap: 6 }}>
+            <AppText style={{ fontSize: 13, color: colors.textSecondary }}>Puntaje máximo</AppText>
+            <TextInput
+              value={agregarFijoPuntaje}
+              onChangeText={setAgregarFijoPuntaje}
+              placeholder="Ej. 10"
+              placeholderTextColor={colors.textFaint}
+              keyboardType="decimal-pad"
+              style={{
+                height: 46,
+                borderRadius: radii.sm,
+                backgroundColor: colors.bg,
+                paddingHorizontal: spacing.lg,
+                fontSize: 15,
+                color: colors.text,
+                fontFamily: "InstrumentSans_600SemiBold",
+              }}
+            />
+          </View>
+        </View>
+        <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
+          <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setAgregarFijoAbierto(false)} />
+          <PrimaryButton
+            label="Agregar"
+            flex
+            disabled={!agregarFijoTitulo.trim() || !Number(agregarFijoPuntaje.replace(",", ".")) || Number(agregarFijoPuntaje.replace(",", ".")) <= 0}
+            onPress={confirmarAgregarFijo}
+          />
+        </View>
+      </BottomSheet>
+
+      {/* Cargar / editar valor de un punto fijo */}
+      <BottomSheet visible={!!cargarFijoItem} onClose={() => setCargarFijoItem(null)}>
+        <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
+          {cargarFijoItem?.valor != null ? "Editar valor" : "Cargar valor"}
+        </AppText>
+        {cargarFijoItem ? (
+          <View style={{ gap: 6 }}>
+            <AppText style={{ fontSize: 13, color: colors.textSecondary }} numberOfLines={1}>
+              {cargarFijoItem.titulo}
+            </AppText>
+            <TextInput
+              value={cargarFijoValor}
+              onChangeText={setCargarFijoValor}
+              placeholder={`Valor sobre ${cargarFijoItem.puntajeMax}`}
+              placeholderTextColor={colors.textFaint}
+              keyboardType="decimal-pad"
+              autoFocus
+              style={{
+                height: 46,
+                borderRadius: radii.sm,
+                backgroundColor: colors.bg,
+                paddingHorizontal: spacing.lg,
+                fontSize: 15,
+                color: colors.text,
+                fontFamily: "InstrumentSans_600SemiBold",
+              }}
+            />
+          </View>
+        ) : null}
+        <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
+          <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setCargarFijoItem(null)} />
+          <PrimaryButton label="Guardar" flex onPress={confirmarCargarFijo} />
+        </View>
+      </BottomSheet>
+
       {/* Nueva evaluación / tarea */}
       <BottomSheet visible={!!crearItemTipo} onClose={() => setCrearItemTipo(null)}>
         <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
@@ -766,6 +1013,22 @@ export default function MateriaDetalleScreen() {
           <PressableScale
             scaleTo={0.99}
             onPress={() => {
+              setEditarNotaValor(String(accionItem.nota ?? ""));
+              setEditarNotaItem(accionItem);
+              setAccionItem(null);
+            }}
+            style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md }}
+          >
+            <AppIcon name="create-outline" size={18} color={colors.text} />
+            <AppText weight="500" style={{ fontSize: 15 }}>
+              Editar nota
+            </AppText>
+          </PressableScale>
+        ) : null}
+        {accionItem && accionItem.estado === "aprobada" ? (
+          <PressableScale
+            scaleTo={0.99}
+            onPress={() => {
               if (accionItem) {
                 agenda.marcarHecho(accionItem.id, false).then((ok) => {
                   if (!ok) avisarError("No se pudo actualizar");
@@ -800,6 +1063,7 @@ export default function MateriaDetalleScreen() {
 }
 
 function Aviso({ tone: t, texto }: { tone: Tone; texto: string }) {
+  const { colors, tone } = useTheme();
   const c = tone[t];
   return (
     <View style={{ padding: spacing.md, borderRadius: radii.sm, backgroundColor: c.soft, borderWidth: 1, borderColor: c.strong + "33" }}>
@@ -809,6 +1073,7 @@ function Aviso({ tone: t, texto }: { tone: Tone; texto: string }) {
 }
 
 function EvalRow({ item, materia, onPress }: { item: DemoEvaluacion; materia: DemoMateria; onPress: () => void }) {
+  const { colors } = useTheme();
   const hecho = item.estado === "aprobada";
   return (
     <PressableScale

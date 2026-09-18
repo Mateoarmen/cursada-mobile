@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { router } from "expo-router";
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
-import { colors, radii, spacing } from "@/theme/tokens";
-import { AppText, BrandMark, PickerField, PressableScale, PrimaryButton } from "@/components/ui";
+import { signInWithGoogle } from "@/lib/googleAuth";
+import { radii, spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
+import { AppText, BrandMark, GoogleButton, PickerField, PressableScale, PrimaryButton } from "@/components/ui";
 import { catCarrerasDe, type CatCarrera } from "@/lib/catalog";
 import {
   aniosNacimiento,
@@ -21,6 +23,7 @@ type Mode = "signin" | "signup";
 type Panel = "form" | "check-email" | "forgot" | "forgot-sent";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const { colors } = useTheme();
   return (
     <View style={{ gap: 6 }}>
       <AppText weight="500" style={{ fontSize: 12, color: colors.textTertiary }}>
@@ -31,15 +34,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-const inputStyle = {
-  height: 50,
-  borderRadius: radii.sm,
-  backgroundColor: colors.surface,
-  paddingHorizontal: spacing.lg,
-  fontSize: 15,
-  color: colors.text,
-  fontFamily: "InstrumentSans_400Regular",
-} as const;
+function makeInputStyle(colors: ReturnType<typeof useTheme>["colors"]) {
+  return {
+    height: 50,
+    borderRadius: radii.sm,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    fontSize: 15,
+    color: colors.text,
+    fontFamily: "InstrumentSans_400Regular",
+  } as const;
+}
 
 const DIAS_OPTS = Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }));
 const MESES_OPTS = MESES_NACIMIENTO.map((m) => ({ value: String(m.value), label: m.label }));
@@ -47,6 +52,8 @@ const ANIOS_OPTS = aniosNacimiento().map((y) => ({ value: String(y), label: Stri
 const PAISES_OPTS = PAISES_TEL.map((p) => ({ value: p.iso, label: `${p.bandera} ${p.nombre} (${p.prefijo})` }));
 
 export default function LoginScreen() {
+  const { colors } = useTheme();
+  const inputStyle = useMemo(() => makeInputStyle(colors), [colors]);
   const [mode, setMode] = useState<Mode>("signin");
   const [panel, setPanel] = useState<Panel>("form");
 
@@ -123,8 +130,18 @@ export default function LoginScreen() {
     setError(null);
   };
 
-  const handleGoogle = () => {
-    Alert.alert("Continuar con Google", "El login con Google todavía no está conectado en la app — usá tu email y contraseña por ahora.");
+  const handleGoogle = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await signInWithGoogle();
+      // setSession() dispara onAuthStateChange y la navegación ya está
+      // manejada en useSession/_layout.tsx.
+    } catch (e) {
+      setError(traducirErrorAuth(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -227,7 +244,7 @@ export default function LoginScreen() {
                 </AppText>
               </View>
 
-              <PrimaryButton label="Continuar con Google" variant="outline" onPress={handleGoogle} />
+              <GoogleButton label="Continuar con Google" onPress={handleGoogle} disabled={busy} />
 
               <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.smd, paddingVertical: spacing.xs }}>
                 <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />

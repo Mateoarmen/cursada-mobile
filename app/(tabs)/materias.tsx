@@ -4,7 +4,8 @@ import { ActivityIndicator, FlatList, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
-import { colors, estadoLabel, estadoTone, materiaColors, radii, spacing, tone, type EstadoMateria } from "@/theme/tokens";
+import { estadoLabel, estadoTone, materiaColors, radii, spacing, type EstadoMateria } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, CtaGlow, Fab, Pill, PressableScale, PrimaryButton, ProgressRing, Reveal } from "@/components/ui";
 import type { DemoMateria } from "@/data/demoContent";
 import { escalaLabel, formatValor, materiaComputadaToRow, unidad } from "@/lib/materias";
@@ -18,6 +19,7 @@ type Vista = "tarjetas" | "tabla";
 const FILTROS_ORDEN: EstadoMateria[] = ["cursando", "aprobada", "pendiente", "recursando"];
 
 function EstadoBadge({ estado }: { estado: EstadoMateria }) {
+  const { tone } = useTheme();
   const t = tone[estadoTone[estado]];
   return (
     <View style={{ height: 24, paddingHorizontal: 11, borderRadius: radii.round, backgroundColor: t.soft, alignItems: "center", justifyContent: "center" }}>
@@ -29,6 +31,7 @@ function EstadoBadge({ estado }: { estado: EstadoMateria }) {
 }
 
 function MateriaCard({ item, onPress }: { item: Row; onPress: () => void }) {
+  const { colors, tone } = useTheme();
   const t = tone[item.tone];
   const accent = materiaColors[item.colorId];
   const notaTxt = item.promedio > 0 ? formatValor(item.promedio, item.escalaTipo) : "—";
@@ -99,6 +102,7 @@ function MateriaCard({ item, onPress }: { item: Row; onPress: () => void }) {
 }
 
 function AddMateriaCard({ onPress }: { onPress: () => void }) {
+  const { colors } = useTheme();
   return (
     <PressableScale
       scaleTo={0.98}
@@ -127,6 +131,7 @@ function AddMateriaCard({ onPress }: { onPress: () => void }) {
 }
 
 function MateriaTableRow({ item, onPress }: { item: Row; onPress: () => void }) {
+  const { colors } = useTheme();
   const accent = materiaColors[item.colorId];
   const notaTxt = item.promedio > 0 ? formatValor(item.promedio, item.escalaTipo) : "—";
   return (
@@ -160,6 +165,7 @@ function MateriaTableRow({ item, onPress }: { item: Row; onPress: () => void }) 
 }
 
 function EmptyState({ onPressPrimera }: { onPressPrimera: () => void }) {
+  const { colors } = useTheme();
   return (
     <View style={{ alignItems: "center", gap: spacing.lg, paddingTop: spacing.xxxl * 2, paddingHorizontal: spacing.xl }}>
       <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }}>
@@ -185,6 +191,7 @@ function EmptyState({ onPressPrimera }: { onPressPrimera: () => void }) {
 }
 
 export default function MateriasScreen() {
+  const { colors } = useTheme();
   const [materias, setMaterias] = useState<Materia[] | null>(null);
   const [cargando, setCargando] = useState(true);
   const [vista, setVista] = useState<Vista>("tarjetas");

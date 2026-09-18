@@ -1,20 +1,24 @@
 import { TextInput, View } from "react-native";
-import { colors, materiaColors, radii, spacing, type MateriaColorId } from "@/theme/tokens";
+import { materiaColors, radii, spacing, type MateriaColorId } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppText, PressableScale } from "@/components/ui";
 
-export const materiaInputStyle = {
-  height: 48,
-  borderRadius: radii.sm,
-  backgroundColor: colors.surface,
-  paddingHorizontal: spacing.lg,
-  fontSize: 15,
-  color: colors.text,
-  fontFamily: "InstrumentSans_400Regular",
-} as const;
+export function makeMateriaInputStyle(colors: ReturnType<typeof useTheme>["colors"]) {
+  return {
+    height: 48,
+    borderRadius: radii.sm,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    fontSize: 15,
+    color: colors.text,
+    fontFamily: "InstrumentSans_400Regular",
+  } as const;
+}
 
 const COLOR_IDS = Object.keys(materiaColors) as MateriaColorId[];
 
 export function MateriaField({ label, children }: { label: string; children: React.ReactNode }) {
+  const { colors } = useTheme();
   return (
     <View style={{ gap: 6 }}>
       <AppText weight="500" style={{ fontSize: 12, color: colors.textTertiary }}>
@@ -37,6 +41,8 @@ type Props = {
 // Paso 1 del alta / primera sección de la edición: nombre, docente, color —
 // mismos 3 campos que el paso 1 del wizard de la web.
 export function MateriaBasicosFields({ nombre, setNombre, doc, setDoc, colorId, setColorId }: Props) {
+  const { colors } = useTheme();
+  const materiaInputStyle = makeMateriaInputStyle(colors);
   return (
     <View style={{ gap: spacing.lg }}>
       <MateriaField label="Nombre">

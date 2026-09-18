@@ -1,4 +1,4 @@
-import { colors, shadows } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppText } from "./AppText";
 import { PressableScale } from "./PressableScale";
 
@@ -8,6 +8,7 @@ type Props = {
 };
 
 export function Fab({ onPress, bottom = 104 }: Props) {
+  const { colors, shadows } = useTheme();
   return (
     <PressableScale
       onPress={onPress}

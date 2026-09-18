@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Animated } from "react-native";
-import { colors } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { PressableScale } from "./PressableScale";
 
 const WIDTH = 46;
@@ -17,6 +17,7 @@ type Props = {
 // de switch del design system, distinta del switch iOS "de fábrica" (track
 // sólido + perilla blanca) que usa el resto del ecosistema RN.
 export function Switch({ value, onValueChange }: Props) {
+  const { colors } = useTheme();
   const anim = useRef(new Animated.Value(value ? 1 : 0)).current;
 
   useEffect(() => {

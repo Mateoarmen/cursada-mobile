@@ -1,22 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as Linking from "expo-linking";
 import { router } from "expo-router";
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
-import { colors, radii, spacing } from "@/theme/tokens";
+import { radii, spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppText, PrimaryButton } from "@/components/ui";
 import { traducirErrorAuth } from "@/lib/authErrors";
 
-const inputStyle = {
-  height: 50,
-  borderRadius: radii.sm,
-  backgroundColor: colors.surface,
-  paddingHorizontal: spacing.lg,
-  fontSize: 15,
-  color: colors.text,
-  fontFamily: "InstrumentSans_400Regular",
-} as const;
+function makeInputStyle(colors: ReturnType<typeof useTheme>["colors"]) {
+  return {
+    height: 50,
+    borderRadius: radii.sm,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    fontSize: 15,
+    color: colors.text,
+    fontFamily: "InstrumentSans_400Regular",
+  } as const;
+}
 
 // Pantalla destino del link de "recuperar contraseña" (cursada://reset-password).
 // Supabase manda el token de recuperación en la URL del deep link (como
@@ -26,6 +29,8 @@ const inputStyle = {
 // directamente, o el flujo del proyecto difiere), se avisa en vez de
 // mostrar un formulario que no va a poder guardar nada.
 export default function ResetPasswordScreen() {
+  const { colors } = useTheme();
+  const inputStyle = useMemo(() => makeInputStyle(colors), [colors]);
   const [ready, setReady] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [password, setPassword] = useState("");

@@ -11,6 +11,11 @@ import { formatFechaAgenda } from "@/lib/agenda";
 // Sin materiaId: todos los ítems del usuario (Agenda, sin acotar a semestre
 // a propósito — ver README de la web, sección Semestres). Con materiaId:
 // sólo los de esa materia (Detalle de materia).
+// Edición completa (Detalle de ítem: "Editar evaluación") — a diferencia de
+// marcarHecho/asignarNota, que son atajos de un solo campo, esto acepta
+// cualquier subconjunto de columnas editables de la fila.
+export type ActualizarAgendaInput = Partial<Pick<EventoAgenda, "titulo" | "tipo" | "fecha" | "hora" | "materia_id" | "nota_maxima">>;
+
 export type NuevoAgendaInput = {
   materiaId: string;
   kind: "evaluacion" | "tarea";
@@ -137,6 +142,16 @@ export function useAgenda(materiaId?: string) {
     return true;
   }, []);
 
+  const actualizar = useCallback(async (id: string, patch: ActualizarAgendaInput) => {
+    const { data, error: err } = await supabase.from("agenda").update(patch).eq("id", id).select().single();
+    if (err || !data) {
+      setError(err?.message ?? "No se pudo actualizar el ítem.");
+      return false;
+    }
+    setRows((prev) => (prev ?? []).map((r) => (r.id === id ? data : r)));
+    return true;
+  }, []);
+
   const eliminar = useCallback(async (id: string) => {
     const { error: err } = await supabase.from("agenda").delete().eq("id", id);
     if (err) {
@@ -155,6 +170,7 @@ export function useAgenda(materiaId?: string) {
     crear,
     marcarHecho,
     asignarNota,
+    actualizar,
     eliminar,
     refetch,
   };

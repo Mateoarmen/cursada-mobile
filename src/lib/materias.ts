@@ -504,6 +504,18 @@ export async function eliminarMateria(id: string): Promise<void> {
   if (error) throw error;
 }
 
+// Reemplaza el array completo de puntos fijos de una materia — usado tanto
+// para agregar uno nuevo como para cargar/editar el valor de uno existente,
+// ya que `componentes_fijos` es una columna JSON sin filas propias.
+export async function guardarComponentesFijos(
+  id: string,
+  componentesFijos: { id: string; titulo: string; puntajeMax: number; valor: number | null }[]
+): Promise<Materia> {
+  const { data, error } = await supabase.from("materias").update({ componentes_fijos: componentesFijos }).eq("id", id).select().single();
+  if (error || !data) throw error ?? new Error("No se pudieron guardar los puntos fijos.");
+  return data as Materia;
+}
+
 export function escalaLabel(tipo: EscalaTipo, total: number): string {
   if (tipo === "nota") return "Nota 0–12";
   if (tipo === "pct") return "Porcentaje";

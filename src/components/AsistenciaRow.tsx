@@ -1,5 +1,6 @@
 import { View } from "react-native";
-import { colors, radii, tone } from "@/theme/tokens";
+import { radii } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppText, PressableScale } from "@/components/ui";
 import type { DemoMateria } from "@/data/demoContent";
 import { ASISTENCIA_ESTADOS, asistenciaEstadoLabel, type AsistenciaEstado } from "@/lib/asistencia";
@@ -15,6 +16,7 @@ function EstadoSegmentado({
   estadoActual: AsistenciaEstado | null;
   onChange: (estado: AsistenciaEstado | null) => void;
 }) {
+  const { colors, tone } = useTheme();
   return (
     <View style={{ flexDirection: "row", gap: 6 }}>
       {ASISTENCIA_ESTADOS.map((estado) => {
@@ -59,6 +61,7 @@ export function AsistenciaRow({
   onChange: (estado: AsistenciaEstado | null) => void;
   isFirst: boolean;
 }) {
+  const { colors } = useTheme();
   return (
     <View style={{ gap: 8, paddingTop: isFirst ? 0 : 12, borderTopWidth: isFirst ? 0 : 1, borderTopColor: colors.borderSoft }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

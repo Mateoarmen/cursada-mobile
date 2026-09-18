@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Animated, Keyboard, Modal, Pressable, View, type KeyboardEvent } from "react-native";
-import { colors, radii, spacing } from "@/theme/tokens";
+import { radii, spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 
 type Props = {
   visible: boolean;
@@ -9,6 +10,7 @@ type Props = {
 };
 
 export function BottomSheet({ visible, onClose, children }: Props) {
+  const { colors } = useTheme();
   // Antes usaba KeyboardAvoidingView (behavior="padding"): anima una
   // propiedad de layout (padding), que no puede correr en el hilo nativo
   // (useNativeDriver no soporta padding/height) y se sentía lenta/con

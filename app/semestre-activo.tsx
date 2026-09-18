@@ -1,19 +1,37 @@
 import { useEffect, useState } from "react";
-import { FlatList, View } from "react-native";
+import { router } from "expo-router";
+import { Alert, FlatList, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
-import { setSemestreActivo } from "@/lib/semestres";
+import { obtenerOCrearSemestrePeriodo, setSemestreActivo } from "@/lib/semestres";
+import { PERIODO_ACTUAL } from "@/lib/catalog";
 import type { Semestre } from "@/types/database";
-import { colors, radii, spacing } from "@/theme/tokens";
-import { AppIcon, AppText, BackButton, PressableScale, Reveal, Spotlight } from "@/components/ui";
+import { radii, spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
+import { AppIcon, AppText, BackButton, BottomSheet, PickerField, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
+
+const [PERIODO_ANIO_ACTUAL, PERIODO_MITAD_ACTUAL] = PERIODO_ACTUAL.split("-");
+const ANIO_OPTS = Array.from({ length: 6 }, (_, i) => {
+  const y = Number(PERIODO_ANIO_ACTUAL ?? new Date().getFullYear()) - 2 + i;
+  return { value: String(y), label: String(y) };
+});
+const MITAD_OPTS = [
+  { value: "1", label: "Primer semestre" },
+  { value: "2", label: "Segundo semestre" },
+];
 
 // Los semestres históricos (creados por el paso "progreso anterior" del
 // wizard de onboarding, ver src/lib/wizardReconcile.ts) nunca aparecen acá
 // ni se pueden activar — mismo criterio que semestresPropiosOrdenados() en
 // runtime.js.
 export default function SemestreActivoScreen() {
+  const { colors } = useTheme();
   const [semestres, setSemestres] = useState<Semestre[] | null>(null);
   const [fetchError, setFetchError] = useState(false);
+  const [nuevoAbierto, setNuevoAbierto] = useState(false);
+  const [nuevoAnio, setNuevoAnio] = useState(PERIODO_ANIO_ACTUAL ?? String(new Date().getFullYear()));
+  const [nuevoMitad, setNuevoMitad] = useState(PERIODO_MITAD_ACTUAL ?? "1");
+  const [creando, setCreando] = useState(false);
 
   const cargar = () => {
     supabase
@@ -46,6 +64,25 @@ export default function SemestreActivoScreen() {
     }
   };
 
+  const confirmarNuevoSemestre = async () => {
+    const periodo = `${nuevoAnio}-${nuevoMitad}`;
+    if (semestres?.some((s) => s.periodo === periodo)) {
+      Alert.alert("Ese semestre ya existe", "Elegí otro año o mitad, o activalo desde la lista.");
+      return;
+    }
+    setCreando(true);
+    try {
+      await obtenerOCrearSemestrePeriodo(periodo);
+      setNuevoAbierto(false);
+      cargar();
+    } catch (e) {
+      Alert.alert("No se pudo crear el semestre", "Revisá tu conexión e intentá de nuevo.");
+      console.warn("Cursada: no se pudo crear el semestre", e);
+    } finally {
+      setCreando(false);
+    }
+  };
+
   const dataReady = semestres !== null;
   const showError = !dataReady && fetchError;
 
@@ -54,9 +91,15 @@ export default function SemestreActivoScreen() {
       <Spotlight height={240} />
       <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
         <BackButton />
-        <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
+        <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2, flex: 1 }}>
           Semestre activo
         </AppText>
+        <PressableScale scaleTo={0.95} onPress={() => router.push("/semestre-historial")} hitSlop={8}>
+          <AppIcon name="time-outline" size={20} color={colors.text} />
+        </PressableScale>
+        <PressableScale scaleTo={0.95} onPress={() => setNuevoAbierto(true)} hitSlop={8}>
+          <AppIcon name="add-circle-outline" size={22} color={colors.text} />
+        </PressableScale>
       </View>
 
       {showError ? (
@@ -130,6 +173,23 @@ export default function SemestreActivoScreen() {
           />
         </Reveal>
       )}
+
+      <BottomSheet visible={nuevoAbierto} onClose={() => setNuevoAbierto(false)}>
+        <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
+          Nuevo semestre
+        </AppText>
+        <AppText style={{ fontSize: 12, color: colors.textTertiary, lineHeight: 16 }}>
+          El semestre activo actual queda cerrado y disponible en el historial.
+        </AppText>
+        <View style={{ flexDirection: "row", gap: spacing.smd }}>
+          <PickerField label="Año" value={nuevoAnio} placeholder="Año" options={ANIO_OPTS} onSelect={setNuevoAnio} compact />
+          <PickerField label="Mitad" value={nuevoMitad} placeholder="Mitad" options={MITAD_OPTS} onSelect={setNuevoMitad} compact />
+        </View>
+        <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
+          <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setNuevoAbierto(false)} />
+          <PrimaryButton label={creando ? "Creando…" : "Crear y activar"} flex disabled={creando} onPress={confirmarNuevoSemestre} />
+        </View>
+      </BottomSheet>
     </SafeAreaView>
   );
 }

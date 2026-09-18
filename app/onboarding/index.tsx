@@ -3,7 +3,8 @@ import { router } from "expo-router";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
-import { colors, radii, spacing } from "@/theme/tokens";
+import { radii, spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, BrandMark, CtaGlow, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
 
 const PASOS = [
@@ -16,6 +17,7 @@ const PASOS = [
 // sólo mientras el usuario no eligió carrera todavía — cualquier otro caso
 // cae acá, al onboarding genérico (nunca un dropdown vacío).
 export default function OnboardingIndex() {
+  const { colors } = useTheme();
   const status = useOnboardingStatusContext();
 
   useEffect(() => {

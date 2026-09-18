@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
 import { Platform, ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,7 +7,8 @@ import { useSession } from "@/hooks/useSession";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
 import { supabase } from "@/lib/supabase";
 import type { Materia, Personal, Semestre } from "@/types/database";
-import { colors, materiaColors, radii, spacing, tabBar, tone, tone as toneMap, type MateriaColorId, type Tone } from "@/theme/tokens";
+import { materiaColors, radii, spacing, tabBar, type MateriaColorId, type Tone } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import {
   AppIcon,
   AppText,
@@ -22,23 +23,26 @@ import {
   Spotlight,
   type AppIconName,
 } from "@/components/ui";
-import { computeKpis, computeMateria, computeMaterias, computeProgresoSemestreActivo, formatValor, unidad } from "@/lib/materias";
+import { agendaDeSemestre, computeKpis, computeMateria, computeMaterias, computeProgresoSemestreActivo, formatValor, unidad } from "@/lib/materias";
 import { getSemestreActivoId, semestresOrdenados } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
 import { agendaBadgeInfo, PERSONAL_COLOR, today as agendaToday } from "@/lib/agenda";
 import { computeProximos, type ProximoItem } from "@/lib/proximos";
+import { configurarCanalAndroid, getNotifPrefs, sincronizarNotificaciones } from "@/lib/notifications";
 
 const hoy = new Date();
 const fechaLabel = hoy
   .toLocaleDateString("es-UY", { weekday: "long", day: "numeric", month: "long" })
   .replace(/^\w/, (c) => c.toUpperCase());
 
-const TONE_COLOR: Record<Tone, string> = {
-  success: colors.successText,
-  warning: colors.warningText,
-  danger: colors.dangerText,
-  neutral: colors.textTertiary,
-};
+function makeToneColor(colors: ReturnType<typeof useTheme>["colors"]): Record<Tone, string> {
+  return {
+    success: colors.successText,
+    warning: colors.warningText,
+    danger: colors.dangerText,
+    neutral: colors.textTertiary,
+  };
+}
 
 // Evita refetch de red completo si se vuelve a esta tab dentro de esta
 // ventana (p.ej. Inicio → Materias → Inicio en pocos segundos); una vuelta
@@ -46,6 +50,8 @@ const TONE_COLOR: Record<Tone, string> = {
 const FOCUS_REFETCH_MIN_INTERVAL_MS = 5000;
 
 export default function InicioScreen() {
+  const { colors, tone } = useTheme();
+  const TONE_COLOR = useMemo(() => makeToneColor(colors), [colors]);
   const insets = useSafeAreaInsets();
   // Espacio real de la tab bar flotante (altura + gap inferior + su propio
   // margen respecto al home indicator) en vez de un padding fijo adivinado.
@@ -112,6 +118,29 @@ export default function InicioScreen() {
     }, [])
   );
 
+  // Recordatorios locales: se reconcilian acá (no en cada mutación
+  // puntual de agenda/horario) porque Inicio es la pantalla que de
+  // cualquier forma ya vuelve a traer materiasAll/agenda al reabrir la
+  // app — recalcular toda la cola en ese momento es más simple y
+  // confiable que perseguir cada punto de mutación por separado. Sólo
+  // materias/agenda del semestre activo: no tiene sentido recordar una
+  // clase o un examen de un semestre ya cerrado.
+  useEffect(() => {
+    if (!materiasAll || !agenda.rows) return;
+    let cancelado = false;
+    (async () => {
+      const prefs = await getNotifPrefs();
+      const materiasActivo = materiasAll.filter((m) => m.semestre_id === activeId);
+      const agendaActivo = agendaDeSemestre(agenda.rows!, materiasAll, activeId);
+      if (cancelado) return;
+      await configurarCanalAndroid();
+      await sincronizarNotificaciones(prefs, agendaActivo, materiasActivo);
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [materiasAll, agenda.rows, activeId]);
+
   const materiasDelActivo = useMemo(
     () => (materiasAll && agenda.rows ? computeMaterias(materiasAll, agenda.rows, activeId) : null),
     [materiasAll, agenda.rows, activeId]
@@ -121,6 +150,20 @@ export default function InicioScreen() {
     () => (materiasDelActivo ?? []).filter((m) => m.tone === "danger" || m.tone === "warning"),
     [materiasDelActivo]
   );
+
+  // Evaluaciones ya rendidas (hecho=true) pero sin nota cargada (nota=null)
+  // — mismo criterio que agendaBadgeInfo "Esperando nota" en Agenda, pero
+  // acotado a evaluaciones (no tareas) del semestre activo, más reciente
+  // primero para que lo recién rendido quede arriba.
+  const esperandoNota = useMemo(() => {
+    if (!materiasAll || !agenda.rows) return [];
+    const agendaActivo = agendaDeSemestre(agenda.rows, materiasAll, activeId);
+    const materiaNombre = new Map(materiasAll.map((m) => [m.id, m.nombre]));
+    return agendaActivo
+      .filter((e) => e.kind === "evaluacion" && e.hecho && e.nota == null)
+      .map((e) => ({ id: e.id, materiaId: e.materia_id, materiaNombre: e.materia_id ? (materiaNombre.get(e.materia_id) ?? "") : "", titulo: e.titulo, fecha: e.fecha }))
+      .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  }, [materiasAll, agenda.rows, activeId]);
   const cursandoCount = useMemo(() => (materiasDelActivo ?? []).filter((m) => m.raw.estado === "cursando").length, [materiasDelActivo]);
   const progresoSemestre = useMemo(
     () => (materiasAll && agenda.rows && semestres ? computeProgresoSemestreActivo(materiasAll, agenda.rows, semestres, activeId) : null),
@@ -466,6 +509,48 @@ export default function InicioScreen() {
             ))}
           </View>
   
+          {/* Esperando nota — evaluaciones ya rendidas sin calificar todavía,
+              para que no se pierdan de vista; tap abre directo la carga de
+              nota en Detalle de materia (ver evaluacionId en materia/[id]). */}
+          {esperandoNota.length > 0 ? (
+            <View>
+              <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2, paddingBottom: spacing.sm }}>
+                Esperando nota
+              </AppText>
+              <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, paddingHorizontal: spacing.lg }}>
+                {esperandoNota.map((e, i) => (
+                  <PressableScale
+                    key={e.id}
+                    scaleTo={0.98}
+                    onPress={() => e.materiaId && router.push(`/materia/${e.materiaId}?evaluacionId=${e.id}`)}
+                    accessibilityLabel={`Cargar nota de ${e.titulo}, ${e.materiaNombre}`}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: spacing.md,
+                      paddingVertical: spacing.md,
+                      borderTopWidth: i === 0 ? 0 : 1,
+                      borderTopColor: colors.borderSoft,
+                    }}
+                  >
+                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.warningSoft, alignItems: "center", justifyContent: "center" }}>
+                      <AppIcon name="alert-circle-outline" size={18} color={colors.warningText} />
+                    </View>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <AppText weight="600" numberOfLines={1} style={{ fontSize: 15 }}>
+                        {e.titulo}
+                      </AppText>
+                      <AppText numberOfLines={1} style={{ fontSize: 13, color: colors.textTertiary }}>
+                        {e.materiaNombre}
+                      </AppText>
+                    </View>
+                    <AppIcon name="chevron-forward" size={18} color={colors.textFaint} />
+                  </PressableScale>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
           {/* Materias en riesgo — réplica del panel #riesgo-panel (runtime.js):
               computeMateriasDelActivo() filtrado a tone danger/warning. */}
           {materiasRiesgo.length > 0 ? (
@@ -610,6 +695,8 @@ function KpiCard({
   onPress?: () => void;
   style?: StyleProp<ViewStyle>;
 }) {
+  const { colors, tone: toneMap } = useTheme();
+  const TONE_COLOR = useMemo(() => makeToneColor(colors), [colors]);
   // Pressable sólo cuando el caller pasa onPress — todas las KPI de Inicio
   // ahora navegan a algo (Materias/Agenda/Progreso), así que en la
   // práctica esto es casi siempre PressableScale; queda opcional para no
@@ -662,6 +749,7 @@ function AccesoButton({
   disabled?: boolean;
   disabledHint?: string;
 }) {
+  const { colors } = useTheme();
   const flatLabel = label.replace("\n", " ");
   return (
     <PressableScale

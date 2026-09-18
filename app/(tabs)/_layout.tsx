@@ -3,7 +3,8 @@ import { BlurView } from "expo-blur";
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 import { Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors, radii, tabBar } from "@/theme/tokens";
+import { radii, tabBar } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, PressableScale } from "@/components/ui";
 import { AsistenciaDiarioGate } from "@/components/AsistenciaDiarioGate";
 
@@ -39,6 +40,7 @@ function TabBarGlass() {
 }
 
 function FloatingTabBar() {
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
 

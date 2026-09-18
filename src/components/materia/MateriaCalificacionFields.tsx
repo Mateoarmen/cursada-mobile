@@ -1,8 +1,9 @@
 import { TextInput, View } from "react-native";
 import type { EscalaTipo } from "@/types/database";
-import { colors, spacing } from "@/theme/tokens";
+import { spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppText, Pill, PressableScale } from "@/components/ui";
-import { MateriaField, materiaInputStyle } from "./MateriaBasicosFields";
+import { MateriaField, makeMateriaInputStyle } from "./MateriaBasicosFields";
 
 const ESC_TIPOS: { value: EscalaTipo; label: string }[] = [
   { value: "nota", label: "Nota 0–12" },
@@ -23,6 +24,8 @@ type Props = {
 
 // Paso 3 del alta / tercera sección de la edición: sistema de calificación.
 export function MateriaCalificacionFields({ escTipo, onCambiarTipo, escTotal, setEscTotal, escAprob, setEscAprob, escExon, setEscExon }: Props) {
+  const { colors } = useTheme();
+  const materiaInputStyle = makeMateriaInputStyle(colors);
   return (
     <View style={{ gap: spacing.lg }}>
       <MateriaField label="Sistema">

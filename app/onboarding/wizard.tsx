@@ -5,7 +5,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/hooks/useSession";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
-import { colors, radii, spacing } from "@/theme/tokens";
+import { radii, spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, PressableScale, PrimaryButton, Reveal } from "@/components/ui";
 import {
   aplicarAgenda,
@@ -63,6 +64,7 @@ function toggle<T>(arr: T[], v: T): T[] {
 }
 
 export default function OnboardingWizardScreen() {
+  const { colors } = useTheme();
   const { session } = useSession();
   const status = useOnboardingStatusContext();
   const userId = session?.user?.id;

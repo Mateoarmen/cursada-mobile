@@ -9,7 +9,8 @@
 // src/lib/asistencia.ts) — el usuario los va resolviendo uno por uno.
 import { useEffect, useMemo, useState } from "react";
 import { AppState, View } from "react-native";
-import { colors, spacing } from "@/theme/tokens";
+import { spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppText, BottomSheet, PrimaryButton } from "@/components/ui";
 import { AsistenciaRow } from "@/components/AsistenciaRow";
 import { supabase } from "@/lib/supabase";
@@ -25,6 +26,7 @@ function hoy(): Date {
 }
 
 export function AsistenciaDiarioGate() {
+  const { colors } = useTheme();
   const { registros, marcar, listo: asistenciaLista } = useAsistencia();
   const [supaMaterias, setSupaMaterias] = useState<Materia[] | null>(null);
   const [cola, setCola] = useState<Date[]>([]);

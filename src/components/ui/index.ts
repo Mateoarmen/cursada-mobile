@@ -6,6 +6,8 @@ export { BottomSheet } from "./BottomSheet";
 export { BrandMark } from "./BrandMark";
 export { CtaGlow } from "./CtaGlow";
 export { Fab } from "./Fab";
+export { GoogleButton } from "./GoogleButton";
+export { MiniCalendario } from "./MiniCalendario";
 export { PickerField } from "./PickerField";
 export { Pill } from "./Pill";
 export { PressableScale } from "./PressableScale";

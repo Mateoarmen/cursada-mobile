@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Alert, View } from "react-native";
-import { colors, spacing } from "@/theme/tokens";
+import { spacing } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeContext";
 import { AppText, BottomSheet, Pill, PickerField, PressableScale, PrimaryButton } from "@/components/ui";
 import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
 import type { MateriaBloqueInput } from "@/lib/materias";
@@ -15,6 +16,7 @@ const HORA_OPTS = Array.from({ length: 48 }, (_, i) => {
 });
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const { colors } = useTheme();
   return (
     <View style={{ gap: 6, flex: 1 }}>
       <AppText weight="500" style={{ fontSize: 12, color: colors.textTertiary }}>
@@ -35,6 +37,7 @@ type Props = {
 // hora de inicio/fin (picker), en vez de tres selectores sueltos metidos en
 // medio del formulario largo (mucho menos intuitivo, era la queja original).
 export function FranjaSheet({ visible, onClose, onAgregar }: Props) {
+  const { colors } = useTheme();
   const [dia, setDia] = useState(1);
   const [ini, setIni] = useState("8");
   const [fin, setFin] = useState("10");
