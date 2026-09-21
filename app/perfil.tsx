@@ -77,7 +77,7 @@ function makeInputStyle(colors: ReturnType<typeof useTheme>["colors"]) {
     borderRadius: radii.sm,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.lg,
-    fontSize: 15,
+    fontSize: 16,
     color: colors.text,
     fontFamily: "InstrumentSans_400Regular",
   } as const;
@@ -99,7 +99,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   const { colors } = useTheme();
   return (
     <View style={{ gap: spacing.md }}>
-      <AppText weight="600" style={{ fontSize: 13, letterSpacing: 0.3, color: colors.textTertiary, textTransform: "uppercase" }}>
+      <AppText weight="600" style={{ fontSize: 13, color: colors.textTertiary }}>
         {title}
       </AppText>
       {children}
@@ -125,30 +125,45 @@ function SettingsRow({
   onToggle?: (v: boolean) => void;
 }) {
   const { colors } = useTheme();
+  // Sin destino ni toggle: no se dibuja un chevron que promete algo que no
+  // pasa — mismo criterio que "Pronto" en los accesos deshabilitados de
+  // Inicio.
+  const pendiente = !toggle && !onPress;
   return (
     <PressableScale
       scaleTo={0.98}
-      onPress={onPress}
-      disabled={toggle}
+      onPress={toggle ? () => onToggle?.(!checked) : onPress}
+      disabled={pendiente}
+      accessible={!toggle}
+      accessibilityRole={toggle ? undefined : "button"}
+      accessibilityLabel={pendiente ? `${label} (pronto)` : undefined}
       style={{
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        paddingVertical: 15,
+        gap: spacing.md,
+        minHeight: 52,
         paddingHorizontal: spacing.lg,
         borderBottomWidth: last ? 0 : 1,
         borderBottomColor: colors.borderFaint,
       }}
     >
-      <AppText weight="500" style={{ fontSize: 15 }}>
+      <AppText weight="500" style={{ fontSize: 16, color: pendiente ? colors.textTertiary : colors.text }}>
         {label}
       </AppText>
       {toggle ? (
-        <Switch value={!!checked} onValueChange={onToggle} />
-      ) : (
-        <AppText mono={!!value} style={{ fontSize: 14, color: colors.textTertiary }}>
-          {value ?? "›"}
+        <Switch value={!!checked} onValueChange={onToggle} accessibilityLabel={label} />
+      ) : pendiente ? (
+        <AppText weight="600" style={{ fontSize: 12, color: colors.textFaint }}>
+          Pronto
         </AppText>
+      ) : (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+          {value ? (
+            <AppText style={{ fontSize: 15, color: colors.textTertiary }}>{value}</AppText>
+          ) : null}
+          <AppIcon name="chevron-forward" size={14} color={colors.textGhost} />
+        </View>
       )}
     </PressableScale>
   );
@@ -340,28 +355,41 @@ export default function PerfilScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
       <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
         <BackButton />
-        <AppText weight="600" style={{ fontSize: 16 }}>
+        <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
           Perfil
         </AppText>
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxxl, gap: spacing.xxl }} keyboardShouldPersistTaps="handled">
-          <View style={{ alignItems: "center", gap: spacing.md, paddingVertical: spacing.sm }}>
-            <PressableScale scaleTo={0.95} onPress={handleCambiarFoto} disabled={avatarBusy} style={{ opacity: avatarBusy ? 0.5 : 1 }}>
+          <View style={{ alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm }}>
+            <PressableScale
+              scaleTo={0.95}
+              onPress={handleCambiarFoto}
+              disabled={avatarBusy}
+              accessibilityRole="button"
+              accessibilityLabel="Cambiar foto de perfil"
+              style={{ opacity: avatarBusy ? 0.5 : 1 }}
+            >
               <Avatar uri={avatarUri} initial={initial} size={88} fontSize={32} />
             </PressableScale>
             <View style={{ alignItems: "center", gap: spacing.xxs }}>
-              <AppText weight="600" style={{ fontSize: 19 }}>
+              <AppText weight="700" style={{ fontSize: 24, letterSpacing: -0.5 }}>
                 {nombreCompleto || email || "Tu cuenta"}
               </AppText>
-              <AppText style={{ fontSize: 13, color: colors.textTertiary }}>{email}</AppText>
+              {nombreCompleto && email ? <AppText style={{ fontSize: 14, color: colors.textTertiary }}>{email}</AppText> : null}
             </View>
             {avatarBusy ? (
               <AppText style={{ fontSize: 13, color: colors.textTertiary }}>Subiendo foto…</AppText>
             ) : (
-              <PressableScale scaleTo={0.98} onPress={() => setEditando((v) => !v)}>
-                <AppText weight="500" style={{ fontSize: 13, color: colors.accentText }}>
+              <PressableScale
+                scaleTo={0.98}
+                onPress={() => setEditando((v) => !v)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: editando }}
+                style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: spacing.lg }}
+              >
+                <AppText weight="600" style={{ fontSize: 15, color: colors.accentText }}>
                   {editando ? "Ocultar" : "Editar perfil"}
                 </AppText>
               </PressableScale>
@@ -455,20 +483,20 @@ export default function PerfilScreen() {
                 </Field>
               </Section>
 
-              <PrimaryButton label={saving ? "Guardando…" : saved ? "Guardado ✓" : "Guardar cambios"} onPress={handleGuardar} disabled={saving} />
+              <PrimaryButton label={saving ? "Guardando…" : saved ? "Guardado" : "Guardar cambios"} onPress={handleGuardar} disabled={saving} />
             </>
           ) : null}
 
-          <View style={{ backgroundColor: colors.surface, borderRadius: radii.sm, overflow: "hidden" }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, overflow: "hidden" }}>
             <SettingsRow label="Semestre activo" onPress={() => router.push("/semestre-activo")} />
             <SettingsRow label="Apariencia" value={aparienciaLabel} onPress={() => setAparienciaAbierta(true)} last />
           </View>
 
-          <View style={{ gap: spacing.sm }}>
-            <AppText weight="600" style={{ fontSize: 12, letterSpacing: 0.5, color: colors.textFaint, paddingHorizontal: spacing.xs, textTransform: "uppercase" }}>
+          <View style={{ gap: spacing.md }}>
+            <AppText weight="600" style={{ fontSize: 13, color: colors.textTertiary }}>
               Notificaciones
             </AppText>
-            <View style={{ backgroundColor: colors.surface, borderRadius: radii.sm, overflow: "hidden" }}>
+            <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, overflow: "hidden" }}>
               {NOTIF_ROWS.map((r, i) => (
                 <SettingsRow
                   key={r.key}
@@ -482,7 +510,7 @@ export default function PerfilScreen() {
             </View>
           </View>
 
-          <View style={{ backgroundColor: colors.surface, borderRadius: radii.sm, overflow: "hidden" }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, overflow: "hidden" }}>
             <SettingsRow label="Privacidad y datos" />
             <SettingsRow label="Ayuda" last />
           </View>
@@ -510,7 +538,7 @@ export default function PerfilScreen() {
               flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",
-              paddingVertical: spacing.md,
+              minHeight: 52,
               borderTopWidth: i === 0 ? 0 : 1,
               borderTopColor: colors.borderFaint,
             }}
