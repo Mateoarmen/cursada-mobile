@@ -30,6 +30,10 @@ function EstadoBadge({ estado }: { estado: EstadoMateria }) {
   );
 }
 
+function materiaAbrev(nombre: string) {
+  return (nombre.trim().split(/\s+/)[0] ?? "").slice(0, 4).toUpperCase();
+}
+
 function MateriaCard({ item, onPress }: { item: Row; onPress: () => void }) {
   const { colors, tone } = useTheme();
   const t = tone[item.tone];
@@ -38,65 +42,50 @@ function MateriaCard({ item, onPress }: { item: Row; onPress: () => void }) {
   const pct = item.promedio > 0 ? Math.max(0, Math.min(1, item.promedio / item.escalaTotal)) : 0;
   const aprobTxt = `aprueba ${formatValor(item.escalaAprob, item.escalaTipo)}${unidad(item.escalaTipo)}`;
   const exonTxt = item.escalaExon != null ? `exonera con ${formatValor(item.escalaExon, item.escalaTipo)}${unidad(item.escalaTipo)}` : null;
+  const lugar = [item.salon, item.horarioResumen].filter(Boolean).join(" · ");
 
   return (
     <PressableScale
       scaleTo={0.98}
       onPress={onPress}
-      style={{
-        backgroundColor: colors.surface,
-        borderRadius: radii.sm,
-        padding: spacing.lg,
-        gap: spacing.md,
-        borderLeftWidth: 3,
-        borderLeftColor: accent.strong,
-      }}
+      accessibilityRole="button"
+      accessibilityLabel={`${item.nombre}, ${estadoLabel[item.estado]}, promedio ${notaTxt}`}
+      style={{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.lg, gap: spacing.md }}
     >
-      {/* Rail de color en vez del dot de 10px — mismo lenguaje que ya usan
-          las filas de Agenda (AgendaRow): un borde izquierdo sólido del
-          acento de la materia recorre todo el alto de la card, más
-          distintivo que un puntito chico y consistente entre pantallas. */}
-      <View style={{ gap: 3 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-          <AppText weight="600" numberOfLines={1} style={{ fontSize: 15, letterSpacing: -0.15, flex: 1 }}>
+      {/* Identidad + resultado en una sola fila: el color de la materia vive
+          en el tile (mismo que el encabezado del detalle) en vez de un
+          borde izquierdo, y el anillo queda a la derecha como lo primero
+          que se compara entre materias. */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+        <View style={{ width: 44, height: 44, borderRadius: radii.sm, backgroundColor: accent.strong, alignItems: "center", justifyContent: "center" }}>
+          <AppText weight="600" style={{ fontSize: 12, color: colors.white }}>
+            {materiaAbrev(item.nombre)}
+          </AppText>
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <AppText weight="600" numberOfLines={1} style={{ fontSize: 16, letterSpacing: -0.2 }}>
             {item.nombre}
           </AppText>
-          <EstadoBadge estado={item.estado} />
-        </View>
-        <AppText numberOfLines={1} style={{ fontSize: 13, color: colors.textTertiary }}>
-          {item.docente}
-        </AppText>
-      </View>
-
-      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-        <ProgressRing size={46} strokeWidth={5} progress={pct} color={t.strong} centerValue={notaTxt} valueFontSize={12} />
-        <View style={{ flex: 1, gap: spacing.xs }}>
-          <AppText numberOfLines={1} style={{ fontSize: 12, color: colors.textTertiary }}>
-            {item.salon}
-          </AppText>
-          <AppText numberOfLines={1} style={{ fontSize: 12, color: colors.textTertiary }}>
-            {item.horarioResumen}
+          <AppText numberOfLines={1} style={{ fontSize: 13, color: colors.textTertiary }}>
+            {item.docente}
           </AppText>
         </View>
+        <ProgressRing size={54} strokeWidth={5} progress={pct} color={t.strong} centerValue={notaTxt} valueFontSize={14} />
       </View>
 
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: spacing.sm,
-          paddingTop: spacing.md,
-          borderTopWidth: 1,
-          borderTopColor: colors.borderFaint,
-        }}
-      >
-        <AppText numberOfLines={1} style={{ fontSize: 11.5, color: colors.textTertiary, flex: 1 }}>
-          {escalaLabel(item.escalaTipo, item.escalaTotal)} · {aprobTxt}
-          {exonTxt ? ` · ${exonTxt}` : ""}
-        </AppText>
-        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.strong }} />
+      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+        <EstadoBadge estado={item.estado} />
+        {lugar ? (
+          <AppText numberOfLines={1} style={{ fontSize: 12, color: colors.textTertiary, flex: 1 }}>
+            {lugar}
+          </AppText>
+        ) : null}
       </View>
+
+      <AppText numberOfLines={1} style={{ fontSize: 12, color: colors.textTertiary }}>
+        {escalaLabel(item.escalaTipo, item.escalaTotal)} · {aprobTxt}
+        {exonTxt ? ` · ${exonTxt}` : ""}
+      </AppText>
     </PressableScale>
   );
 }
@@ -108,8 +97,8 @@ function AddMateriaCard({ onPress }: { onPress: () => void }) {
       scaleTo={0.98}
       onPress={onPress}
       style={{
-        minHeight: 120,
-        borderRadius: radii.sm,
+        minHeight: 96,
+        borderRadius: radii.lg,
         borderWidth: 1.5,
         borderColor: colors.border,
         borderStyle: "dashed",
@@ -118,12 +107,8 @@ function AddMateriaCard({ onPress }: { onPress: () => void }) {
         gap: spacing.sm,
       }}
     >
-      <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.accentSofter, alignItems: "center", justifyContent: "center" }}>
-        <AppText weight="400" style={{ fontSize: 22, color: colors.accentText, lineHeight: 24 }}>
-          +
-        </AppText>
-      </View>
-      <AppText weight="500" style={{ fontSize: 14, color: colors.accentText }}>
+      <AppIcon name="add-circle-outline" size={24} color={colors.accentText} />
+      <AppText weight="500" style={{ fontSize: 15, color: colors.accentText }}>
         Agregá otra materia
       </AppText>
     </PressableScale>
@@ -138,23 +123,25 @@ function MateriaTableRow({ item, onPress }: { item: Row; onPress: () => void }) 
     <PressableScale
       scaleTo={0.99}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${item.nombre}, ${estadoLabel[item.estado]}, promedio ${notaTxt}`}
       style={{
         flexDirection: "row",
         alignItems: "center",
         gap: spacing.md,
-        paddingVertical: spacing.md,
+        minHeight: 56,
         borderTopWidth: 1,
         borderTopColor: colors.borderFaint,
       }}
     >
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: accent.strong }} />
-      <AppText weight="500" numberOfLines={1} style={{ fontSize: 14, flex: 1.3 }}>
+      <AppText weight="500" numberOfLines={1} style={{ fontSize: 15, flex: 1.3 }}>
         {item.nombre}
       </AppText>
       <AppText numberOfLines={1} style={{ fontSize: 13, color: colors.textTertiary, flex: 1 }}>
         {item.docente}
       </AppText>
-      <AppText mono weight="600" style={{ fontSize: 13, width: 44, textAlign: "right" }}>
+      <AppText mono weight="600" numberOfLines={1} style={{ fontSize: 13, width: 60, textAlign: "right" }}>
         {notaTxt}/{formatValor(item.escalaAprob, item.escalaTipo)}
       </AppText>
       <View style={{ width: 78, alignItems: "flex-end" }}>
@@ -194,6 +181,7 @@ export default function MateriasScreen() {
   const { colors } = useTheme();
   const [materias, setMaterias] = useState<Materia[] | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState(false);
   const [vista, setVista] = useState<Vista>("tarjetas");
   const [filtro, setFiltro] = useState<FiltroEstado>("todas");
   const [query, setQuery] = useState("");
@@ -211,9 +199,10 @@ export default function MateriasScreen() {
         const activeId = await getSemestreActivoId();
         let query = supabase.from("materias").select("*");
         if (activeId) query = query.eq("semestre_id", activeId);
-        const { data } = await query;
+        const { data, error } = await query;
         if (cancelado) return;
-        setMaterias(data ?? []);
+        setErrorCarga(!!error);
+        if (!error) setMaterias(data ?? []);
         setCargando(false);
       })();
       return () => {
@@ -255,12 +244,14 @@ export default function MateriasScreen() {
 
   const opciones = useMemo<FiltroEstado[]>(() => ["todas", ...FILTROS_ORDEN.filter((e) => counts[e])], [counts]);
 
+  const filtroActivo = opciones.includes(filtro) ? filtro : "todas";
+
   const filtradas = useMemo(() => {
-    let out = filtro === "todas" ? rows : rows.filter((r) => r.estado === filtro);
+    let out = filtroActivo === "todas" ? rows : rows.filter((r) => r.estado === filtroActivo);
     const q = query.trim().toLowerCase();
     if (q) out = out.filter((r) => `${r.nombre} ${r.docente}`.toLowerCase().includes(q));
     return out;
-  }, [rows, filtro, query]);
+  }, [rows, filtroActivo, query]);
 
   const onNuevaMateria = () => router.push("/materia/nueva");
   const onAbrirMateria = (id: string) => router.push(`/materia/${id}`);
@@ -269,7 +260,7 @@ export default function MateriasScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
       <View style={{ paddingHorizontal: spacing.xl, gap: spacing.lg, paddingBottom: spacing.md }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <AppText weight="700" style={{ fontSize: 29, letterSpacing: -0.6 }}>
+          <AppText weight="700" style={{ fontSize: 32, letterSpacing: -0.8 }}>
             Materias
           </AppText>
           <AppText mono style={{ fontSize: 13, color: colors.textTertiary }}>
@@ -279,7 +270,7 @@ export default function MateriasScreen() {
 
         <View
           style={{
-            height: 42,
+            height: 44,
             borderRadius: radii.sm,
             backgroundColor: colors.surfaceSoft,
             flexDirection: "row",
@@ -293,6 +284,8 @@ export default function MateriasScreen() {
             value={query}
             onChangeText={setQuery}
             placeholder="Buscar materia"
+            accessibilityLabel="Buscar materia"
+            clearButtonMode="while-editing"
             placeholderTextColor={colors.textFaint}
             style={{ flex: 1, fontSize: 15, color: colors.text, padding: 0 }}
             autoCapitalize="none"
@@ -311,12 +304,12 @@ export default function MateriasScreen() {
               contentContainerStyle={{ gap: spacing.sm }}
               style={{ flex: 1 }}
               renderItem={({ item: o }) => (
-                <PressableScale scaleTo={0.96} onPress={() => setFiltro(o)}>
+                <PressableScale scaleTo={0.96} onPress={() => setFiltro(o)} accessibilityRole="button" accessibilityState={{ selected: filtroActivo === o }}>
                   <Pill
                     label={`${o === "todas" ? "Todas" : estadoLabel[o]} · ${counts[o] ?? 0}`}
-                    background={filtro === o ? colors.accent : colors.surfaceSoft}
-                    color={filtro === o ? colors.white : colors.textSecondary}
-                    style={{ height: 32, paddingHorizontal: spacing.md }}
+                    background={filtroActivo === o ? colors.accent : colors.surfaceSoft}
+                    color={filtroActivo === o ? colors.white : colors.textSecondary}
+                    style={{ height: 36, paddingHorizontal: spacing.lg }}
                   />
                 </PressableScale>
               )}
@@ -335,8 +328,8 @@ export default function MateriasScreen() {
                   accessibilityLabel={key === "tarjetas" ? "Vista de tarjetas" : "Vista de tabla"}
                   accessibilityState={{ selected: vista === key }}
                   style={{
-                    width: 32,
-                    height: 32,
+                    width: 38,
+                    height: 36,
                     borderRadius: radii.sm - 2,
                     alignItems: "center",
                     justifyContent: "center",
@@ -355,6 +348,17 @@ export default function MateriasScreen() {
         <View style={{ paddingTop: spacing.xxxl * 2, alignItems: "center" }}>
           <ActivityIndicator color={colors.textTertiary} />
         </View>
+      ) : errorCarga && rows.length === 0 ? (
+        <View
+          accessible
+          accessibilityLabel="No pudimos cargar tus materias. Revisá tu conexión y volvé a esta pantalla para reintentar."
+          style={{ marginHorizontal: spacing.xl, flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: colors.dangerSofter, borderRadius: radii.md, padding: spacing.lg }}
+        >
+          <AppIcon name="alert-circle-outline" size={18} color={colors.dangerText} />
+          <AppText style={{ flex: 1, fontSize: 13, color: colors.dangerText }}>
+            No pudimos cargar tus materias. Revisá tu conexión y volvé a esta pantalla para reintentar.
+          </AppText>
+        </View>
       ) : (
         // Antes el contenido cargado aparecía de golpe apenas resolvía el
         // fetch (mismo anti-patrón que ya se corrigió en Inicio, ver
@@ -369,10 +373,10 @@ export default function MateriasScreen() {
             <FlatList
               data={filtradas}
               keyExtractor={(item) => item.id}
-              contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 140, gap: spacing.smd }}
+              contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 140, gap: spacing.md }}
               renderItem={({ item }) => <MateriaCard item={item} onPress={() => onAbrirMateria(item.id)} />}
               ListFooterComponent={<AddMateriaCard onPress={onNuevaMateria} />}
-              ListFooterComponentStyle={{ marginTop: spacing.smd }}
+              ListFooterComponentStyle={{ marginTop: spacing.md }}
               ListEmptyComponent={
                 <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>
                   Ninguna materia coincide con la búsqueda.
