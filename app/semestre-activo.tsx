@@ -84,6 +84,8 @@ export default function SemestreActivoScreen() {
   };
 
   const dataReady = semestres !== null;
+  const activo = semestres?.find((s) => s.activo) ?? null;
+  const otros = (semestres ?? []).filter((s) => !s.activo);
   const showError = !dataReady && fetchError;
 
   return (
@@ -91,15 +93,9 @@ export default function SemestreActivoScreen() {
       <Spotlight height={240} />
       <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
         <BackButton />
-        <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2, flex: 1 }}>
+        <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
           Semestre activo
         </AppText>
-        <PressableScale scaleTo={0.95} onPress={() => router.push("/semestre-historial")} hitSlop={8}>
-          <AppIcon name="time-outline" size={20} color={colors.text} />
-        </PressableScale>
-        <PressableScale scaleTo={0.95} onPress={() => setNuevoAbierto(true)} hitSlop={8}>
-          <AppIcon name="add-circle-outline" size={22} color={colors.text} />
-        </PressableScale>
       </View>
 
       {showError ? (
@@ -125,49 +121,92 @@ export default function SemestreActivoScreen() {
       ) : null}
 
       {!dataReady ? (
-        <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando…</AppText>
+        showError ? null : <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando…</AppText>
       ) : (
         <Reveal style={{ flex: 1 }}>
           <FlatList
-            data={semestres}
+            data={otros}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.sm, gap: spacing.smd }}
+            contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.xxxl, gap: spacing.smd }}
+            ListHeaderComponent={
+              <View style={{ gap: spacing.xxl, paddingBottom: spacing.md }}>
+                {activo ? (
+                  <View
+                    accessible
+                    accessibilityLabel={`${activo.nombre}, semestre activo`}
+                    style={{ backgroundColor: colors.accentSoft, borderRadius: radii.xl, padding: spacing.xl, gap: spacing.md }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs }}>
+                      <AppIcon name="checkmark-circle-outline" size={16} color={colors.accentText} />
+                      <AppText weight="600" style={{ fontSize: 14, color: colors.accentText }}>
+                        Activo
+                      </AppText>
+                    </View>
+                    <AppText weight="700" style={{ fontSize: 32, lineHeight: 36, letterSpacing: -0.8 }}>
+                      {activo.nombre}
+                    </AppText>
+                  </View>
+                ) : null}
+                {otros.length > 0 ? (
+                  <AppText weight="700" style={{ fontSize: 20, letterSpacing: -0.4 }}>
+                    {activo ? "Otros semestres" : "Semestres"}
+                  </AppText>
+                ) : null}
+              </View>
+            }
             renderItem={({ item }) => (
               <PressableScale
                 scaleTo={0.98}
                 onPress={() => activarSemestre(item.id)}
                 accessibilityRole="radio"
-                accessibilityState={{ selected: item.activo }}
-                accessibilityLabel={`${item.nombre}${item.activo ? ", activo" : ""}`}
+                accessibilityState={{ selected: false }}
+                accessibilityLabel={`${item.nombre}, activar`}
                 style={{
-                  backgroundColor: item.activo ? colors.accentSoft : colors.surface,
+                  backgroundColor: colors.surface,
                   borderRadius: radii.lg,
-                  padding: spacing.lg,
+                  paddingHorizontal: spacing.lg,
+                  minHeight: 60,
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "space-between",
                   gap: spacing.md,
                 }}
               >
-                <AppText weight="600" style={{ fontSize: 16, color: item.activo ? colors.accentText : colors.text }}>
+                <AppText weight="600" style={{ fontSize: 16 }}>
                   {item.nombre}
                 </AppText>
-                {item.activo ? (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <AppIcon name="checkmark-circle-outline" size={16} color={colors.accentText} />
-                    <AppText weight="500" style={{ fontSize: 13, color: colors.accentText }}>
-                      Activo
-                    </AppText>
-                  </View>
-                ) : null}
+                <AppText weight="500" style={{ fontSize: 14, color: colors.accentText }}>
+                  Activar
+                </AppText>
               </PressableScale>
             )}
             ListEmptyComponent={
-              <View style={{ alignItems: "center", gap: spacing.md, paddingTop: spacing.xxxl }}>
-                <View style={{ width: 48, height: 48, borderRadius: radii.round, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }}>
-                  <AppIcon name="calendar-outline" size={22} color={colors.textFaint} />
+              !semestres?.length ? (
+                <View style={{ alignItems: "center", gap: spacing.md, paddingTop: spacing.xl }}>
+                  <View style={{ width: 48, height: 48, borderRadius: radii.round, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }}>
+                    <AppIcon name="calendar-outline" size={22} color={colors.textFaint} />
+                  </View>
+                  <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center" }}>No hay semestres cargados todavía.</AppText>
                 </View>
-                <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center" }}>No hay semestres cargados todavía.</AppText>
+              ) : null
+            }
+            ListFooterComponent={
+              <View style={{ gap: spacing.smd, paddingTop: spacing.xxl }}>
+                <PrimaryButton label="Nuevo semestre" onPress={() => setNuevoAbierto(true)} />
+                <PressableScale
+                  scaleTo={0.98}
+                  onPress={() => router.push("/semestre-historial")}
+                  accessibilityRole="button"
+                  style={{ minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, borderRadius: radii.lg, backgroundColor: colors.surface }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+                    <AppIcon name="time-outline" size={18} color={colors.textSecondary} />
+                    <AppText weight="500" style={{ fontSize: 16 }}>
+                      Historial
+                    </AppText>
+                  </View>
+                  <AppIcon name="chevron-forward" size={14} color={colors.textGhost} />
+                </PressableScale>
               </View>
             }
           />
@@ -178,7 +217,7 @@ export default function SemestreActivoScreen() {
         <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
           Nuevo semestre
         </AppText>
-        <AppText style={{ fontSize: 12, color: colors.textTertiary, lineHeight: 16 }}>
+        <AppText style={{ fontSize: 13, color: colors.textTertiary, lineHeight: 18 }}>
           El semestre activo actual queda cerrado y disponible en el historial.
         </AppText>
         <View style={{ flexDirection: "row", gap: spacing.smd }}>
