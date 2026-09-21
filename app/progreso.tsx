@@ -7,7 +7,7 @@ import { easing, estadoLabel, estadoTone, materiaColors, motionDuration, radii, 
 import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, Reveal, Spotlight } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
-import { today } from "@/lib/agenda";
+import { today, toISODate } from "@/lib/agenda";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
 import { useAgenda } from "@/hooks/useAgenda";
 import { semestresOrdenados } from "@/lib/semestres";
@@ -57,8 +57,8 @@ type NotaModalData = { materiaId: string; materiaRaw: Materia; nombre: string; t
 function SectionTitle({ children, hint }: { children: string; hint?: string }) {
   const { colors } = useTheme();
   return (
-    <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingBottom: spacing.sm }}>
-      <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
+    <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingBottom: spacing.md }}>
+      <AppText weight="700" style={{ fontSize: 21, letterSpacing: -0.5, lineHeight: 26 }}>
         {children}
       </AppText>
       {hint ? (
@@ -305,7 +305,7 @@ export default function ProgresoScreen() {
       return;
     }
 
-    const fecha = today().toISOString().slice(0, 10);
+    const fecha = toISODate(today());
     const { error } = await supabase.from("agenda").insert({
       user_id: user.id,
       materia_id: notaModal.materiaId,
@@ -399,13 +399,31 @@ export default function ProgresoScreen() {
       ) : null}
 
       {!dataReady ? (
-        <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando tu progreso…</AppText>
+        showError ? null : <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando tu progreso…</AppText>
       ) : (
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxxl, gap: spacing.xl }}
         showsVerticalScrollIndicator={false}
       >
-      <Reveal style={{ gap: spacing.xl }}>
+      <Reveal style={{ gap: spacing.xxl }}>
+        {/* Aviso materias aprobadas sin nota */}
+        {aprobadasSinNota.length > 0 ? (
+          <View
+            style={{
+              backgroundColor: colors.warningSoft,
+              borderRadius: radii.md,
+              padding: spacing.lg,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: spacing.md,
+            }}
+          >
+            <AppIcon name="alert-circle-outline" size={20} color={colors.warningText} />
+            <AppText style={{ fontSize: 13, color: colors.warningText, flex: 1 }}>
+              Tenés {aprobadasSinNota.length} {aprobadasSinNota.length === 1 ? "materia aprobada sin nota cargada" : "materias aprobadas sin nota cargada"}.
+            </AppText>
+          </View>
+        ) : null}
         {/* Progreso hacia el título — promovida al primer lugar: es el
             número emocionalmente más cargado de la pantalla ("¿voy a
             recibirme?") y antes pesaba lo mismo que "Semestres sin
@@ -422,14 +440,25 @@ export default function ProgresoScreen() {
               end={{ x: 0.9, y: 1 }}
               style={{ borderRadius: radii.xxl, padding: 1.5 }}
             >
-              <View style={{ borderRadius: radii.xxl - 1.5, backgroundColor: colors.surfaceRaised, padding: spacing.xl, gap: spacing.md }}>
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                  <AppText style={{ fontSize: 13, color: colors.textSecondary }}>
-                    {materiasAprobadasTotal} / {metaCarrera} materias
-                  </AppText>
+              <View style={{ borderRadius: radii.xxl - 1.5, backgroundColor: colors.surfaceRaised, padding: spacing.xl, gap: spacing.sm }}>
+                <View
+                  accessible
+                  accessibilityLabel={`${materiasAprobadasTotal} de ${metaCarrera} materias aprobadas, ${metaPct}%`}
+                  style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "baseline", gap: spacing.sm, flexShrink: 1 }}>
+                    <AppText weight="700" style={{ fontSize: 48, lineHeight: 52, letterSpacing: -1.5 }}>
+                      {materiasAprobadasTotal}
+                    </AppText>
+                    <AppText weight="500" style={{ fontSize: 16, color: colors.textSecondary }}>
+                      / {metaCarrera} materias
+                    </AppText>
+                  </View>
                   <Pill label={`${metaPct}%`} color={colors.successText} background={colors.successSoft} mono />
                 </View>
-                <BarraProgreso pct={metaPct} color={colors.success} />
+                <View style={{ paddingTop: spacing.xs }}>
+                  <BarraProgreso pct={metaPct} color={colors.success} />
+                </View>
               </View>
             </LinearGradient>
           ) : (
@@ -447,8 +476,8 @@ export default function ProgresoScreen() {
               <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xl }}>
                 <ProgressRing
                   progress={progresoActivo.evaluacionesEsperadas > 0 ? progresoActivo.evaluacionesCalificadas / progresoActivo.evaluacionesEsperadas : 0}
-                  size={80}
-                  strokeWidth={8}
+                  size={72}
+                  strokeWidth={7}
                   color={colors.accent}
                   centerValue={`${progresoActivo.evaluacionesCalificadas}/${progresoActivo.evaluacionesEsperadas}`}
                   centerLabel="notas"
@@ -456,7 +485,7 @@ export default function ProgresoScreen() {
                   labelFontSize={10}
                 />
                 <View style={{ flex: 1, gap: 3 }}>
-                  <AppText weight="700" style={{ fontSize: 26, letterSpacing: -0.4 }}>
+                  <AppText weight="700" style={{ fontSize: 40, lineHeight: 44, letterSpacing: -1.2 }}>
                     {progresoActivo.promedio != null ? `${progresoActivo.promedio}%` : "—"}
                   </AppText>
                   <AppText style={{ fontSize: 13, color: colors.textSecondary }}>promedio del semestre</AppText>
@@ -476,7 +505,7 @@ export default function ProgresoScreen() {
                   ) : null}
                 </View>
               </View>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSoft }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: spacing.lg, borderTopWidth: 1, borderTopColor: colors.borderSoft }}>
                 {bucketsEsteSemestre.map((b) => {
                   const esRiesgo = b.label === "En riesgo";
                   const Container = esRiesgo && b.value > 0 ? PressableScale : View;
@@ -486,10 +515,10 @@ export default function ProgresoScreen() {
                       {...(esRiesgo && b.value > 0 ? { scaleTo: 0.95, onPress: () => setRiesgoModalOpen(true), accessibilityLabel: `${b.label}: ${b.value}, ver detalle` } : {})}
                       style={{ alignItems: "center", gap: 2, flex: 1 }}
                     >
-                      <AppText mono weight="700" style={{ fontSize: 18, color: esRiesgo && b.value > 0 ? colors.dangerText : colors.text }}>
+                      <AppText mono weight="700" style={{ fontSize: 24, color: esRiesgo && b.value > 0 ? colors.dangerText : colors.text }}>
                         {b.value}
                       </AppText>
-                      <AppText style={{ fontSize: 11, color: colors.textFaint, textAlign: "center" }} numberOfLines={2}>
+                      <AppText style={{ fontSize: 12, color: colors.textTertiary, textAlign: "center" }} numberOfLines={2}>
                         {b.label}
                       </AppText>
                     </Container>
@@ -506,7 +535,14 @@ export default function ProgresoScreen() {
             <SectionTitle>Evolución de promedio</SectionTitle>
             <Card>
               {semestresConPromedio.map((s) => (
-                <PressableScale key={s.semestre.id} scaleTo={0.98} onPress={() => abrirSemestreModal(s)} style={{ gap: spacing.xs }}>
+                <PressableScale
+                  key={s.semestre.id}
+                  scaleTo={0.98}
+                  onPress={() => abrirSemestreModal(s)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${s.semestre.nombre}, promedio ${s.promedio}%, ${s.aprobadas} de ${s.total} aprobadas`}
+                  style={{ gap: spacing.xs, paddingVertical: spacing.xs }}
+                >
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                     <AppText weight="500" style={{ fontSize: 13, color: colors.textSecondary }}>
                       {s.semestre.nombre}
@@ -534,9 +570,9 @@ export default function ProgresoScreen() {
               {pendientesPorSemestre.map((grupo, gi) => (
                 <View
                   key={grupo.semestreId}
-                  style={{ gap: spacing.sm, paddingTop: gi === 0 ? 0 : spacing.sm, borderTopWidth: gi === 0 ? 0 : 1, borderTopColor: colors.borderSoft }}
+                  style={{ gap: spacing.sm, paddingTop: gi === 0 ? 0 : spacing.md, borderTopWidth: gi === 0 ? 0 : 1, borderTopColor: colors.borderSoft }}
                 >
-                  <AppText weight="600" style={{ fontSize: 11, letterSpacing: 0.4, textTransform: "uppercase", color: colors.textFaint }}>
+                  <AppText weight="600" style={{ fontSize: 13, color: colors.textTertiary }}>
                     {grupo.semestreNombre}
                   </AppText>
                   {grupo.items.map((item) => (
@@ -544,13 +580,17 @@ export default function ProgresoScreen() {
                       key={item.raw.id}
                       scaleTo={0.98}
                       onPress={() => abrirNotaModal(item)}
-                      style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}
+                      accessibilityLabel={`Cargar nota de ${item.raw.nombre}`}
+                      style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 44 }}
                     >
                       <View style={{ width: 8, height: 8, borderRadius: radii.round, backgroundColor: colorDeMateria(item.raw) }} />
-                      <AppText weight="500" style={{ fontSize: 14, flex: 1 }}>
+                      <AppText weight="500" style={{ fontSize: 15, flex: 1 }}>
                         {item.raw.nombre}
                       </AppText>
-                      <AppText style={{ fontSize: 12, color: colors.accent }}>Cargar nota ›</AppText>
+                      <AppText weight="500" style={{ fontSize: 13, color: colors.accentText }}>
+                        Cargar nota
+                      </AppText>
+                      <AppIcon name="chevron-forward" size={13} color={colors.accentText} />
                     </PressableScale>
                   ))}
                 </View>
@@ -569,10 +609,11 @@ export default function ProgresoScreen() {
                   key={s.semestre.id}
                   scaleTo={0.98}
                   onPress={() => abrirSemestreModal(s)}
-                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                  accessibilityRole="button"
+                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48 }}
                 >
                   <View style={{ gap: 2 }}>
-                    <AppText weight="500" style={{ fontSize: 14 }}>
+                    <AppText weight="500" style={{ fontSize: 15 }}>
                       {s.semestre.nombre}
                     </AppText>
                     <AppText style={{ fontSize: 12, color: colors.textFaint }}>{s.aprobadas} aprobadas · sin nota cargada</AppText>
@@ -609,24 +650,6 @@ export default function ProgresoScreen() {
           </View>
         ) : null}
 
-        {/* Aviso materias aprobadas sin nota */}
-        {aprobadasSinNota.length > 0 ? (
-          <View
-            style={{
-              backgroundColor: colors.warningSoft,
-              borderRadius: radii.md,
-              padding: spacing.lg,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: spacing.md,
-            }}
-          >
-            <AppIcon name="alert-circle-outline" size={20} color={colors.warningText} />
-            <AppText style={{ fontSize: 13, color: colors.warningText, flex: 1 }}>
-              Tenés {aprobadasSinNota.length} {aprobadasSinNota.length === 1 ? "materia aprobada sin nota cargada" : "materias aprobadas sin nota cargada"}.
-            </AppText>
-          </View>
-        ) : null}
       </Reveal>
       </ScrollView>
       )}
@@ -655,7 +678,7 @@ export default function ProgresoScreen() {
               }}
             >
               <View style={{ width: 8, height: 8, borderRadius: radii.round, backgroundColor: colorDeMateria(m.raw) }} />
-              <AppText style={{ fontSize: 14, flex: 1 }}>{m.raw.nombre}</AppText>
+              <AppText style={{ fontSize: 15, flex: 1 }}>{m.raw.nombre}</AppText>
               <AppText mono weight="600" style={{ fontSize: 13, color: colors.dangerText }}>
                 {formatValor(m.actual ?? 0, m.esc.tipo)}/{formatValor(m.esc.aprob, m.esc.tipo)}
               </AppText>
@@ -692,7 +715,7 @@ export default function ProgresoScreen() {
                     }}
                   >
                     <View style={{ width: 8, height: 8, borderRadius: radii.round, backgroundColor: m.color }} />
-                    <AppText style={{ fontSize: 14, flex: 1 }}>{m.nombre}</AppText>
+                    <AppText style={{ fontSize: 15, flex: 1 }}>{m.nombre}</AppText>
                     <AppText mono weight="600" style={{ fontSize: 13, color: TONE_COLOR[m.tone] }}>
                       {m.notaTxt}/{m.aprobTxt}
                     </AppText>
@@ -730,15 +753,16 @@ export default function ProgresoScreen() {
               keyboardType="decimal-pad"
               autoFocus
               style={{
-                height: 48,
+                height: 52,
                 borderRadius: radii.sm,
-                backgroundColor: colors.surface,
+                backgroundColor: colors.bg,
                 paddingHorizontal: spacing.lg,
-                fontSize: 15,
+                fontSize: 17,
                 color: colors.text,
+                fontFamily: "InstrumentSans_600SemiBold",
               }}
             />
-            <PrimaryButton label="Guardar" onPress={guardarNota} disabled={guardandoNota} />
+            <PrimaryButton label="Guardar" onPress={guardarNota} disabled={guardandoNota || !notaInput.trim()} />
           </>
         ) : null}
       </BottomSheet>
