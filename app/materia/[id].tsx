@@ -9,7 +9,7 @@ import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, RangeSlider, type AppIconName } from "@/components/ui";
 import type { DemoAsistenciaRango, DemoEvaluacion, DemoMateria } from "@/data/demoContent";
 import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
-import { today } from "@/lib/agenda";
+import { today, toISODate } from "@/lib/agenda";
 import {
   calcularSimulacion,
   escalaLabel,
@@ -24,7 +24,7 @@ import {
 import { useAgenda } from "@/hooks/useAgenda";
 
 function isoToday() {
-  return today().toISOString().slice(0, 10);
+  return toISODate(today());
 }
 
 function nuevoIdLocal() {
@@ -167,7 +167,6 @@ export default function MateriaDetalleScreen() {
   const [rangoAsistencia, setRangoAsistencia] = useState<RangoAsistencia>("semana");
   const [cargarNotaAbierto, setCargarNotaAbierto] = useState(false);
   const [notaInputs, setNotaInputs] = useState<Record<string, string>>({});
-  const [accionItem, setAccionItem] = useState<DemoEvaluacion | null>(null);
   const [editarNotaItem, setEditarNotaItem] = useState<DemoEvaluacion | null>(null);
   const abrioNotaDesdeParamRef = useRef(false);
   const [editarNotaValor, setEditarNotaValor] = useState("");
@@ -301,6 +300,10 @@ export default function MateriaDetalleScreen() {
     Animated.timing(chevronRotate, { toValue: next ? 1 : 0, duration: motionDuration.routine, easing: easing.inOut, useNativeDriver: true }).start();
   };
 
+  // Mismo detalle que al tocar el ítem en Agenda (app/item/[id].tsx): una
+  // sola pantalla de evaluación en vez de un menú distinto por lugar.
+  const abrirItem = (itemId: string) => router.push(`/item/${itemId}?kind=materia&desde=materia`);
+
   const abrirCargarNota = () => {
     if (!pendientesEvals.length) {
       stub("Cargar nota");
@@ -429,60 +432,62 @@ export default function MateriaDetalleScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
-      <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.md, gap: spacing.lg }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-          <BackButton />
-          <View
-            style={{ width: 40, height: 40, borderRadius: radii.sm, backgroundColor: accent.strong, alignItems: "center", justifyContent: "center" }}
-          >
-            <AppText weight="600" style={{ fontSize: 12, color: colors.white }}>
-              {materiaAbrev(materia.nombre)}
-            </AppText>
-          </View>
-          <View style={{ flex: 1, gap: 2 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-              <AppText weight="600" numberOfLines={1} style={{ fontSize: 18, letterSpacing: -0.2, flexShrink: 1 }}>
+      {/* Barra fija mínima: volver + editar. La identidad de la materia
+          (nombre, estado, datos) scrollea con el contenido en vez de comerse
+          ~250px de pantalla fijos. */}
+      <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.sm, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <BackButton />
+        <PressableScale
+          scaleTo={0.97}
+          onPress={() => (supaMateria ? router.push(`/materia/form?id=${supaMateria.id}`) : stub("Editar materia"))}
+          style={{ minHeight: 44, minWidth: 44, alignItems: "flex-end", justifyContent: "center" }}
+        >
+          <AppText weight="600" style={{ fontSize: 16, color: colors.accentText }}>
+            Editar
+          </AppText>
+        </PressableScale>
+      </View>
+
+      <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.sm, gap: spacing.xl, paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
+        {/* Identidad */}
+        <View style={{ gap: spacing.lg }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.lg }}>
+            <View style={{ width: 52, height: 52, borderRadius: radii.md, backgroundColor: accent.strong, alignItems: "center", justifyContent: "center" }}>
+              <AppText weight="600" style={{ fontSize: 13, color: colors.white }}>
+                {materiaAbrev(materia.nombre)}
+              </AppText>
+            </View>
+            <View style={{ flex: 1, gap: spacing.sm }}>
+              <AppText weight="700" numberOfLines={2} style={{ fontSize: 26, lineHeight: 30, letterSpacing: -0.6 }}>
                 {materia.nombre}
               </AppText>
               <Pill label={estadoLabel[materia.estado]} background={tone[estadoTone[materia.estado]].soft} color={tone[estadoTone[materia.estado]].text} />
             </View>
-            <AppText mono style={{ fontSize: 12, color: colors.textTertiary }}>
-              {materia.docente} · {escalaLabel(materia.escalaTipo, materia.escalaTotal).toLowerCase()}
-            </AppText>
+          </View>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: spacing.xxxl, rowGap: spacing.md }}>
+            <View style={{ gap: 2 }}>
+              <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Docente</AppText>
+              <AppText weight="600" style={{ fontSize: 14 }}>
+                {materia.docente}
+              </AppText>
+            </View>
+            <View style={{ gap: 2 }}>
+              <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Salón</AppText>
+              <AppText weight="600" style={{ fontSize: 14 }}>
+                {materia.salon || "Sin salón asignado"}
+              </AppText>
+            </View>
+            <View style={{ gap: 2 }}>
+              <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Cursada</AppText>
+              <AppText weight="600" style={{ fontSize: 14 }}>
+                {materia.periodoLabel}
+              </AppText>
+            </View>
           </View>
         </View>
 
-        <View style={{ flexDirection: "row", gap: spacing.xxxl }}>
-          <View style={{ gap: 1 }}>
-            <AppText style={{ fontSize: 11, color: colors.textFaint }}>Salón</AppText>
-            <AppText mono weight="600" style={{ fontSize: 13 }}>
-              {materia.salon || "Sin salón asignado"}
-            </AppText>
-          </View>
-          <View style={{ gap: 1 }}>
-            <AppText style={{ fontSize: 11, color: colors.textFaint }}>Cursada</AppText>
-            <AppText mono weight="600" style={{ fontSize: 13 }}>
-              {materia.periodoLabel}
-            </AppText>
-          </View>
-        </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
-          <PressableScale scaleTo={0.97} onPress={() => (supaMateria ? router.push(`/materia/form?id=${supaMateria.id}`) : stub("Editar materia"))}>
-            <Pill label="Editar materia" background={colors.surfaceSoft} style={{ height: 34, paddingHorizontal: 14 }} />
-          </PressableScale>
-          <PressableScale scaleTo={0.97} onPress={() => abrirCrearItem("tarea")}>
-            <Pill label="+ Nueva tarea" background={colors.surfaceSoft} style={{ height: 34, paddingHorizontal: 14 }} />
-          </PressableScale>
-          <PressableScale scaleTo={0.97} onPress={() => abrirCrearItem("evaluacion")}>
-            <Pill label="+ Nueva evaluación" background={colors.accent} color={colors.white} style={{ height: 34, paddingHorizontal: 14 }} />
-          </PressableScale>
-        </ScrollView>
-      </View>
-
-      <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, gap: spacing.xl, paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
-        {/* Veredicto de aprobación — fuera de la Card, es el dato más
-            importante de la pantalla (ver critique P0). */}
+        {/* Veredicto de aprobación — el dato más importante de la pantalla
+            (ver critique P0). */}
         <Callout tone={materia.tone} titulo={callout.titulo} texto={callout.texto} />
 
         {/* Calificación y aprobación */}
@@ -533,79 +538,50 @@ export default function MateriaDetalleScreen() {
             <PrimaryButton label="Cargar nota" flex onPress={abrirCargarNota} />
             <PrimaryButton label="Cambiar escala" variant="ghost" flex onPress={() => stub("Cambiar escala y aprobación")} />
           </View>
+        </Card>
 
-          <View style={{ gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderFaint }}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <AppText weight="600" style={{ fontSize: 12, letterSpacing: 0.5, textTransform: "uppercase", color: colors.textFaint }}>
-                Puntos fijos del curso
-              </AppText>
-              <PressableScale scaleTo={0.95} onPress={abrirAgregarFijo} hitSlop={8} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <AppIcon name="add-circle-outline" size={16} color={colors.accentText} />
-                <AppText weight="600" style={{ fontSize: 12, color: colors.accentText }}>
-                  Agregar
-                </AppText>
-              </PressableScale>
+        {/* Evaluaciones y tareas */}
+        <Card>
+          <SectionTitle hint={`${evaluaciones.length} ${evaluaciones.length === 1 ? "ítem" : "ítems"}`}>Evaluaciones y tareas</SectionTitle>
+          {pendientesEvals.length === 0 && completadasEvals.length === 0 ? (
+            <AppText style={{ fontSize: 13, color: colors.textTertiary }}>Todavía no hay evaluaciones ni tareas para esta materia.</AppText>
+          ) : (
+            <View style={{ gap: spacing.sm }}>
+              {pendientesEvals.map((e) => (
+                <EvalRow key={e.id} item={e} materia={materia} onPress={() => abrirItem(e.id)} />
+              ))}
+              {completadasEvals.map((e) => (
+                <EvalRow key={e.id} item={e} materia={materia} onPress={() => abrirItem(e.id)} />
+              ))}
             </View>
-            <AppText style={{ fontSize: 12, color: colors.textTertiary, lineHeight: 16 }}>
-              No tienen fecha ni son una tarea — cargalos vos cuando el profesor te los dé (asistencia, entregas, participación).
-            </AppText>
-            {materia.componentesFijos.length ? (
-              materia.componentesFijos.map((c) => (
-                <PressableScale
-                  key={c.id}
-                  scaleTo={0.99}
-                  onPress={() => abrirCargarFijo(c)}
-                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 2 }}
-                >
-                  <AppText style={{ fontSize: 13, color: colors.textSecondary }}>{c.titulo}</AppText>
-                  {c.valor != null ? (
-                    <AppText mono weight="600" style={{ fontSize: 13 }}>
-                      {c.valor}/{c.puntajeMax}
-                    </AppText>
-                  ) : (
-                    <Pill label="Cargar valor" color={colors.accentText} background={colors.accentSoft} />
-                  )}
-                </PressableScale>
-              ))
-            ) : (
-              <AppText style={{ fontSize: 12, color: colors.textFaint }}>Todavía no cargaste ninguno.</AppText>
-            )}
+          )}
+          <View style={{ flexDirection: "row", gap: spacing.smd }}>
+            <PrimaryButton label="Nueva evaluación" flex onPress={() => abrirCrearItem("evaluacion")} />
+            <PrimaryButton label="Nueva tarea" variant="ghost" flex onPress={() => abrirCrearItem("tarea")} />
           </View>
+        </Card>
 
-          {haySimulable ? (
-            <PressableScale scaleTo={0.98} onPress={toggleSimulador} accessibilityState={{ expanded: simuladorAbierto }}>
-              <View
-                style={{
-                  height: 40,
-                  borderRadius: radii.sm,
-                  backgroundColor: colors.surfaceSoft,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexDirection: "row",
-                  gap: spacing.sm,
-                }}
-              >
-                <AppIcon name="options-outline" size={15} color={colors.text} />
-                <AppText weight="600" style={{ fontSize: 13 }}>
-                  Simular escenario
-                </AppText>
-                <Animated.View
-                  style={{
-                    transform: [
-                      {
-                        rotate: chevronRotate.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "180deg"] }),
-                      },
-                    ],
-                  }}
-                >
-                  <AppIcon name="chevron-down" size={15} color={colors.textTertiary} />
-                </Animated.View>
-              </View>
+        {/* Simulador — card propia: antes vivía anidado dentro de
+            Calificación, que se volvía la card más larga de la pantalla. */}
+        {haySimulable ? (
+          <Card>
+            <PressableScale
+              scaleTo={0.99}
+              onPress={toggleSimulador}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: simuladorAbierto }}
+              style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 32 }}
+            >
+              <AppIcon name="options-outline" size={18} color={colors.text} />
+              <AppText weight="600" style={{ fontSize: 17, letterSpacing: -0.2, flex: 1 }}>
+                Simular escenario
+              </AppText>
+              <Animated.View style={{ transform: [{ rotate: chevronRotate.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "180deg"] }) }] }}>
+                <AppIcon name="chevron-down" size={15} color={colors.textTertiary} />
+              </Animated.View>
             </PressableScale>
-          ) : null}
-
-          {haySimulable && simuladorAbierto ? (
-            <View style={{ gap: spacing.lg, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderFaint }}>
+          {simuladorAbierto ? (
+            <View style={{ gap: spacing.lg }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.lg }}>
                 <ProgressRing size={64} strokeWidth={7} progress={simPct} color={tone[simTone].strong} centerValue={formatValor(sim.puntosProyectados, materia.escalaTipo)} valueFontSize={14} />
                 <View style={{ flex: 1, gap: 4 }}>
@@ -706,22 +682,53 @@ export default function MateriaDetalleScreen() {
               </PressableScale>
             </View>
           ) : null}
-        </Card>
+          </Card>
+        ) : null}
 
-        {/* Evaluaciones y tareas */}
+        {/* Puntos fijos del curso */}
         <Card>
-          <SectionTitle hint={`${evaluaciones.length} ${evaluaciones.length === 1 ? "ítem" : "ítems"}`}>Evaluaciones y tareas</SectionTitle>
-          {pendientesEvals.length === 0 && completadasEvals.length === 0 ? (
-            <AppText style={{ fontSize: 13, color: colors.textTertiary }}>Todavía no hay evaluaciones ni tareas para esta materia.</AppText>
-          ) : (
-            <View style={{ gap: spacing.sm }}>
-              {pendientesEvals.map((e) => (
-                <EvalRow key={e.id} item={e} materia={materia} onPress={() => setAccionItem(e)} />
-              ))}
-              {completadasEvals.map((e) => (
-                <EvalRow key={e.id} item={e} materia={materia} onPress={() => setAccionItem(e)} />
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <AppText weight="600" style={{ fontSize: 17, letterSpacing: -0.2 }}>
+              Puntos fijos del curso
+            </AppText>
+            <PressableScale scaleTo={0.95} onPress={abrirAgregarFijo} hitSlop={8} style={{ flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32 }}>
+              <AppIcon name="add-circle-outline" size={16} color={colors.accentText} />
+              <AppText weight="600" style={{ fontSize: 14, color: colors.accentText }}>
+                Agregar
+              </AppText>
+            </PressableScale>
+          </View>
+          {materia.componentesFijos.length ? (
+            <View>
+              {materia.componentesFijos.map((c, i) => (
+                <PressableScale
+                  key={c.id}
+                  scaleTo={0.99}
+                  onPress={() => abrirCargarFijo(c)}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    minHeight: 48,
+                    borderTopWidth: i === 0 ? 0 : 1,
+                    borderTopColor: colors.borderFaint,
+                  }}
+                >
+                  <AppText style={{ fontSize: 15, color: colors.textSecondary }}>{c.titulo}</AppText>
+                  {c.valor != null ? (
+                    <AppText mono weight="600" style={{ fontSize: 15 }}>
+                      {c.valor}/{c.puntajeMax}
+                    </AppText>
+                  ) : (
+                    <Pill label="Cargar valor" color={colors.accentText} background={colors.accentSoft} />
+                  )}
+                </PressableScale>
               ))}
             </View>
+          ) : (
+            <AppText style={{ fontSize: 13, color: colors.textTertiary, lineHeight: 18 }}>
+              No tienen fecha ni son una tarea — cargalos vos cuando el profesor te los dé (asistencia, entregas, participación).
+            </AppText>
           )}
         </Card>
 
@@ -993,77 +1000,6 @@ export default function MateriaDetalleScreen() {
           <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setCrearItemTipo(null)} />
           <PrimaryButton label="Crear" flex disabled={!crearItemTitulo.trim()} onPress={confirmarCrearItem} />
         </View>
-      </BottomSheet>
-
-      {/* Acciones de fila */}
-      <BottomSheet visible={!!accionItem} onClose={() => setAccionItem(null)}>
-        <AppText weight="600" style={{ fontSize: 17 }} numberOfLines={1}>
-          {accionItem?.nombre}
-        </AppText>
-        {accionItem && accionItem.estado === "pendiente" ? (
-          <PressableScale
-            scaleTo={0.99}
-            onPress={() => {
-              setNotaInputs({});
-              setCargarNotaAbierto(true);
-              setAccionItem(null);
-            }}
-            style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md }}
-          >
-            <AppIcon name="checkmark-circle-outline" size={18} color={colors.text} />
-            <AppText weight="500" style={{ fontSize: 15 }}>
-              Marcar como rendida / cargar nota
-            </AppText>
-          </PressableScale>
-        ) : null}
-        {accionItem && accionItem.estado === "aprobada" ? (
-          <PressableScale
-            scaleTo={0.99}
-            onPress={() => {
-              setEditarNotaValor(String(accionItem.nota ?? ""));
-              setEditarNotaItem(accionItem);
-              setAccionItem(null);
-            }}
-            style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md }}
-          >
-            <AppIcon name="create-outline" size={18} color={colors.text} />
-            <AppText weight="500" style={{ fontSize: 15 }}>
-              Editar nota
-            </AppText>
-          </PressableScale>
-        ) : null}
-        {accionItem && accionItem.estado === "aprobada" ? (
-          <PressableScale
-            scaleTo={0.99}
-            onPress={() => {
-              if (accionItem) {
-                agenda.marcarHecho(accionItem.id, false).then((ok) => {
-                  if (!ok) avisarError("No se pudo actualizar");
-                });
-              }
-              setAccionItem(null);
-            }}
-            style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md }}
-          >
-            <AppIcon name="arrow-undo-outline" size={18} color={colors.text} />
-            <AppText weight="500" style={{ fontSize: 15 }}>
-              Marcar como pendiente
-            </AppText>
-          </PressableScale>
-        ) : null}
-        <PressableScale
-          scaleTo={0.99}
-          onPress={() => {
-            setAccionItem(null);
-            stub("Editar");
-          }}
-          style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderFaint }}
-        >
-          <AppIcon name="create-outline" size={18} color={colors.text} />
-          <AppText weight="500" style={{ fontSize: 15 }}>
-            Editar
-          </AppText>
-        </PressableScale>
       </BottomSheet>
     </SafeAreaView>
   );
