@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
-import { Alert, ScrollView, TextInput, View } from "react-native";
+import { Alert, ScrollView, TextInput, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { materiaColors, radii, spacing, type Tone } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, BottomSheet, Fab, MiniCalendario, Pill, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
+import { AppIcon, AppText, BottomSheet, Fab, MiniCalendario, Pill, PressableScale, PrimaryButton, Reveal, Segmented, Spotlight } from "@/components/ui";
 import type { DemoAgendaItem } from "@/data/demoContent";
 import { materiaComputadaToRow } from "@/lib/materias";
 import { getSemestreActivoId } from "@/lib/semestres";
@@ -22,13 +22,12 @@ import {
   mesLargoLabel,
   MESES_LARGOS,
   parseISODate,
-  PERSONAL_COLOR,
+  toISODate,
   today,
 } from "@/lib/agenda";
 
 type EnrichedItem = DemoAgendaItem & {
   materiaNombre: string;
-  accentColor: string;
   chipBg: string;
   chipColor: string;
 };
@@ -51,11 +50,23 @@ function monthKey(iso: string) {
 }
 
 function isoToday() {
-  return today().toISOString().slice(0, 10);
+  return toISODate(today());
 }
 
 const FECHA_QUICK_LABELS = ["Hoy", "Mañana", "Pasado", "En una semana"];
 const FECHA_QUICK_OFFSETS = [0, 1, 2, 7];
+
+function CampoCrear({ label, children }: { label: string; children: React.ReactNode }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ gap: spacing.smd }}>
+      <AppText weight="500" style={{ fontSize: 12, color: colors.textTertiary }}>
+        {label}
+      </AppText>
+      {children}
+    </View>
+  );
+}
 
 // Opciones rápidas de fecha para el sheet de creación — sin agregar una
 // dependencia nativa de date-picker sólo para esto (ver critique P2: antes
@@ -67,7 +78,7 @@ function fechaQuickOptions() {
   return FECHA_QUICK_OFFSETS.map((offset, i) => {
     const d = new Date(base);
     d.setDate(d.getDate() + offset);
-    return { value: d.toISOString().slice(0, 10), label: FECHA_QUICK_LABELS[i]! };
+    return { value: toISODate(d), label: FECHA_QUICK_LABELS[i]! };
   });
 }
 
@@ -101,13 +112,11 @@ function AgendaRow({
       onPress={onPress}
       style={{
         backgroundColor: colors.surface,
-        borderRadius: radii.md,
-        padding: spacing.md + 2,
+        borderRadius: radii.lg,
+        padding: spacing.lg,
         flexDirection: "row",
         alignItems: "center",
-        gap: spacing.md,
-        borderLeftWidth: 3,
-        borderLeftColor: item.accentColor,
+        gap: spacing.lg,
       }}
     >
       <PressableScale
@@ -119,11 +128,11 @@ function AgendaRow({
         accessibilityState={{ checked: item.hecho, disabled: !esMateria }}
         accessibilityLabel={esMateria ? (item.hecho ? "Marcar como pendiente" : "Marcar como completado") : undefined}
         style={{
-          width: 22,
-          height: 22,
-          borderRadius: 11,
+          width: 24,
+          height: 24,
+          borderRadius: 12,
           borderWidth: 2,
-          borderColor: item.hecho ? colors.success : "rgba(245,245,247,0.35)",
+          borderColor: item.hecho ? colors.success : colors.textFaint,
           backgroundColor: item.hecho ? colors.success : "transparent",
           alignItems: "center",
           justifyContent: "center",
@@ -138,7 +147,7 @@ function AgendaRow({
           weight="500"
           numberOfLines={1}
           style={{
-            fontSize: 15,
+            fontSize: 16,
             color: item.hecho ? colors.textTertiary : colors.text,
             textDecorationLine: item.hecho ? "line-through" : "none",
           }}
@@ -157,13 +166,13 @@ function AgendaRow({
       </View>
 
       <View style={{ alignItems: "flex-end", gap: 4 }}>
-        <AppText mono style={{ fontSize: 11, color: colors.textFaint }}>
+        <AppText mono style={{ fontSize: 12, color: colors.textTertiary }}>
           {formatFechaAgenda(item.fecha, item.todoElDia ? undefined : item.hora)}
         </AppText>
         {mostrarBadge ? (
           <Pill label={badge.label} color={badgeTone.text} background={badgeTone.soft} style={{ height: 22, paddingHorizontal: 9 }} />
         ) : (
-          <AppText mono weight="600" style={{ fontSize: 12, color: countdownColor }}>
+          <AppText mono weight="600" style={{ fontSize: 13, color: countdownColor }}>
             {countdownTxt}
           </AppText>
         )}
@@ -198,19 +207,16 @@ function AgendaGroup({
   let ultimoMes: string | null = null;
 
   return (
-    <View style={{ gap: spacing.sm }}>
+    <View style={{ gap: spacing.md }}>
       <View style={{ flexDirection: "row", alignItems: "baseline", gap: spacing.sm }}>
-        <AppText
-          weight="700"
-          style={{ fontSize: 11, letterSpacing: 0.7, textTransform: "uppercase", color: danger ? colors.dangerText : colors.textSecondary }}
-        >
+        <AppText weight="700" style={{ fontSize: 20, letterSpacing: -0.4, color: danger ? colors.dangerText : colors.text }}>
           {titulo}
         </AppText>
-        <AppText mono style={{ fontSize: 11, color: colors.textFaint }}>
-          {items.length} {items.length === 1 ? "ítem" : "ítems"}
+        <AppText mono style={{ fontSize: 13, color: colors.textTertiary }}>
+          {items.length}
         </AppText>
       </View>
-      <View style={{ gap: spacing.sm }}>
+      <View style={{ gap: spacing.smd }}>
         {items.map((item) => {
           const key = monthKey(item.fecha);
           const divider = mostrarDivisores && key !== ultimoMes ? mesLargoLabel(item.fecha, t) : null;
@@ -218,7 +224,7 @@ function AgendaGroup({
           return (
             <View key={item.id} style={{ gap: spacing.sm }}>
               {divider ? (
-                <AppText weight="600" style={{ fontSize: 12, color: colors.textFaint, paddingTop: spacing.xs }}>
+                <AppText weight="600" style={{ fontSize: 13, color: colors.textTertiary, paddingTop: spacing.xs }}>
                   {divider}
                 </AppText>
               ) : null}
@@ -238,6 +244,7 @@ function AgendaGroup({
 }
 
 export default function AgendaScreen() {
+  const { height: windowHeight } = useWindowDimensions();
   const { colors } = useTheme();
   const agenda = useAgenda();
   const { refetch: refetchAgenda } = agenda;
@@ -294,6 +301,12 @@ export default function AgendaScreen() {
   const [filtrosSheetOpen, setFiltrosSheetOpen] = useState(false);
   const [nuevoSheetOpen, setNuevoSheetOpen] = useState(false);
 
+  // Circulito de una evaluación pendiente: en vez de marcarla hecha de una,
+  // se pregunta qué pasó (rendida sin nota todavía, o ya con nota).
+  const [rendirId, setRendirId] = useState<string | null>(null);
+  const [rendirPaso, setRendirPaso] = useState<"opciones" | "nota">("opciones");
+  const [rendirNota, setRendirNota] = useState("");
+
   const [crearModo, setCrearModo] = useState<{ kind: "materia"; itemKind: "evaluacion" | "tarea" } | { kind: "personal" } | null>(null);
   const [creTitulo, setCreTitulo] = useState("");
   const [creMateriaId, setCreMateriaId] = useState(materiasRows[0]?.id ?? "");
@@ -312,9 +325,9 @@ export default function AgendaScreen() {
         if (item.kind === "materia" && item.materiaId) {
           const m = materiaLookup.get(item.materiaId);
           const accent = m ? materiaColors[m.colorId] : materiaColors.gris;
-          return { ...item, materiaNombre: m?.nombre ?? "Materia", accentColor: accent.strong, chipBg: accent.soft, chipColor: accent.strong };
+          return { ...item, materiaNombre: m?.nombre ?? "Materia", chipBg: accent.soft, chipColor: accent.strong };
         }
-        return { ...item, materiaNombre: "Personal", accentColor: PERSONAL_COLOR, chipBg: colors.neutralSoft, chipColor: colors.neutralText };
+        return { ...item, materiaNombre: "Personal", chipBg: colors.neutralSoft, chipColor: colors.neutralText };
       }),
     [items, materiaLookup]
   );
@@ -353,6 +366,12 @@ export default function AgendaScreen() {
   const toggleHecho = async (id: string) => {
     const actual = agenda.items.find((it) => it.id === id);
     if (!actual) return;
+    if (!actual.hecho && actual.itemKind === "evaluacion") {
+      setRendirNota("");
+      setRendirPaso("opciones");
+      setRendirId(id);
+      return;
+    }
     if (actual.hecho && actual.nota != null) {
       Alert.alert("Marcar como pendiente", "Esta evaluación tiene una nota cargada. ¿Qué querés hacer?", [
         { text: "Cancelar", style: "cancel" },
@@ -377,6 +396,26 @@ export default function AgendaScreen() {
     }
     const ok = await agenda.marcarHecho(id, !actual.hecho);
     if (!ok) avisarError("No se pudo actualizar");
+  };
+
+  const rendirItem = rendirId ? agenda.items.find((it) => it.id === rendirId) ?? null : null;
+
+  const cerrarRendir = () => setRendirId(null);
+
+  const marcarEsperandoNota = async () => {
+    if (!rendirId) return;
+    const ok = await agenda.marcarHecho(rendirId, true);
+    cerrarRendir();
+    if (!ok) avisarError("No se pudo actualizar");
+  };
+
+  const guardarNotaRendir = async () => {
+    if (!rendirId) return;
+    const n = Number(rendirNota.trim().replace(",", "."));
+    if (!rendirNota.trim() || !Number.isFinite(n)) return;
+    const ok = await agenda.asignarNota(rendirId, n);
+    cerrarRendir();
+    if (!ok) avisarError("No se pudo guardar la nota");
   };
 
   // Detalle completo del ítem (título, materia, fecha, estado, nota,
@@ -440,7 +479,7 @@ export default function AgendaScreen() {
       <Spotlight height={280} />
       <View style={{ paddingHorizontal: spacing.xl, gap: spacing.md, paddingBottom: spacing.sm }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <AppText weight="700" style={{ fontSize: 29, letterSpacing: -0.6 }}>
+          <AppText weight="700" style={{ fontSize: 32, letterSpacing: -0.8 }}>
             Agenda
           </AppText>
           <AppText mono style={{ fontSize: 12, color: colors.textTertiary }}>
@@ -451,7 +490,7 @@ export default function AgendaScreen() {
 
         <View
           style={{
-            height: 42,
+            height: 44,
             borderRadius: radii.sm,
             backgroundColor: colors.surfaceSoft,
             flexDirection: "row",
@@ -465,6 +504,8 @@ export default function AgendaScreen() {
             value={query}
             onChangeText={setQuery}
             placeholder="Buscar en la agenda"
+            accessibilityLabel="Buscar en la agenda"
+            clearButtonMode="while-editing"
             placeholderTextColor={colors.textFaint}
             style={{ flex: 1, fontSize: 15, color: colors.text, padding: 0 }}
             autoCapitalize="none"
@@ -476,12 +517,12 @@ export default function AgendaScreen() {
         <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
           <View style={{ flexDirection: "row", gap: spacing.sm, flex: 1 }}>
             {KIND_OPTIONS.map((o) => (
-              <PressableScale key={o.value} scaleTo={0.96} onPress={() => setFiltroKind(o.value)}>
+              <PressableScale key={o.value} scaleTo={0.96} onPress={() => setFiltroKind(o.value)} accessibilityRole="button" accessibilityState={{ selected: filtroKind === o.value }}>
                 <Pill
                   label={o.label}
                   background={filtroKind === o.value ? colors.text : colors.surfaceSoft}
                   color={filtroKind === o.value ? colors.bg : colors.textSecondary}
-                  style={{ height: 32, paddingHorizontal: 14 }}
+                  style={{ height: 36, paddingHorizontal: 14 }}
                 />
               </PressableScale>
             ))}
@@ -496,7 +537,7 @@ export default function AgendaScreen() {
             onPress={() => setFiltrosSheetOpen(true)}
             accessibilityLabel={`Filtros${filtrosActivosCount ? `, ${filtrosActivosCount} activos` : ""}`}
             style={{
-              height: 32,
+              height: 36,
               borderRadius: radii.sm,
               backgroundColor: filtrosActivosCount ? colors.accentSoft : colors.surfaceSoft,
               flexDirection: "row",
@@ -535,11 +576,11 @@ export default function AgendaScreen() {
         </View>
       ) : null}
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 140, gap: spacing.lg }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 140, gap: spacing.xxl }} showsVerticalScrollIndicator={false}>
         {!dataReady ? (
-          <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando tu agenda…</AppText>
+          showError ? null : <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando tu agenda…</AppText>
         ) : (
-          <Reveal style={{ gap: spacing.lg }}>
+          <Reveal style={{ gap: spacing.xxl }}>
             <AgendaGroup titulo="Vencidas" danger items={vencidas} t={t} ocultarMateriaChip={ocultarMateriaChip} onToggleHecho={toggleHecho} onPressItem={abrirItem} />
             <AgendaGroup titulo="Esta semana" items={estaSemana} t={t} ocultarMateriaChip={ocultarMateriaChip} onToggleHecho={toggleHecho} onPressItem={abrirItem} />
             <AgendaGroup
@@ -553,22 +594,24 @@ export default function AgendaScreen() {
             />
 
             {completadas.length ? (
-              <View style={{ gap: spacing.sm }}>
+              <View style={{ gap: spacing.md }}>
                 <PressableScale
                   scaleTo={0.99}
                   onPress={() => setCompletadasAbiertas((v) => !v)}
-                  style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: completadasAbiertas }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, minHeight: 32 }}
                 >
-                  <AppText weight="700" style={{ fontSize: 11, letterSpacing: 0.7, textTransform: "uppercase", color: colors.textSecondary }}>
+                  <AppText weight="700" style={{ fontSize: 20, letterSpacing: -0.4, color: colors.textSecondary }}>
                     Completadas
                   </AppText>
-                  <AppText mono style={{ fontSize: 11, color: colors.textFaint }}>
+                  <AppText mono style={{ fontSize: 13, color: colors.textTertiary }}>
                     {completadas.length}
                   </AppText>
-                  <AppIcon name={completadasAbiertas ? "chevron-up" : "chevron-down"} size={13} color={colors.textFaint} />
+                  <AppIcon name={completadasAbiertas ? "chevron-up" : "chevron-down"} size={14} color={colors.textTertiary} />
                 </PressableScale>
                 {completadasAbiertas ? (
-                  <View style={{ gap: spacing.sm }}>
+                  <View style={{ gap: spacing.smd }}>
                     {completadas.map((item) => (
                       <AgendaRow
                         key={item.id}
@@ -616,7 +659,8 @@ export default function AgendaScreen() {
         <AppText weight="600" style={{ fontSize: 17 }}>
           Filtros
         </AppText>
-        <AppText weight="700" style={{ fontSize: 11, letterSpacing: 0.7, textTransform: "uppercase", color: colors.textFaint, paddingTop: spacing.xs }}>
+        <ScrollView style={{ maxHeight: windowHeight * 0.55 }} showsVerticalScrollIndicator={false}>
+        <AppText weight="600" style={{ fontSize: 13, color: colors.textTertiary, paddingTop: spacing.xs }}>
           Materia
         </AppText>
         <PressableScale
@@ -651,7 +695,7 @@ export default function AgendaScreen() {
           </PressableScale>
         ))}
 
-        <AppText weight="700" style={{ fontSize: 11, letterSpacing: 0.7, textTransform: "uppercase", color: colors.textFaint, paddingTop: spacing.lg }}>
+        <AppText weight="600" style={{ fontSize: 13, color: colors.textTertiary, paddingTop: spacing.lg }}>
           Estado
         </AppText>
         {ESTADO_OPTIONS.map((o, i) => (
@@ -674,6 +718,7 @@ export default function AgendaScreen() {
             {filtroEstado === o.value ? <AppIcon name="checkmark" size={18} color={colors.accent} /> : null}
           </PressableScale>
         ))}
+        </ScrollView>
 
         <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.md }}>
           <PrimaryButton label="Limpiar" variant="ghost" flex onPress={limpiarFiltros} />
@@ -681,38 +726,105 @@ export default function AgendaScreen() {
         </View>
       </BottomSheet>
 
+      {/* Circulito de evaluación pendiente */}
+      <BottomSheet visible={!!rendirId} onClose={cerrarRendir}>
+        <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }} numberOfLines={2}>
+          {rendirPaso === "nota" ? "Asignar nota" : rendirItem?.titulo ?? "Evaluación"}
+        </AppText>
+        {rendirPaso === "opciones" ? (
+          <View>
+            {[
+              { icon: "add-circle-outline" as const, label: "Asignar nota", hint: "Ya tengo la nota", onPress: () => setRendirPaso("nota") },
+              { icon: "checkmark-circle-outline" as const, label: "Marcar como rendida", hint: "Queda esperando nota", onPress: marcarEsperandoNota },
+            ].map((opt, i) => (
+              <PressableScale
+                key={opt.label}
+                scaleTo={0.99}
+                onPress={opt.onPress}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: spacing.lg,
+                  minHeight: 60,
+                  borderTopWidth: i === 0 ? 0 : 1,
+                  borderTopColor: colors.borderFaint,
+                }}
+              >
+                <View style={{ width: 36, height: 36, borderRadius: radii.sm, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }}>
+                  <AppIcon name={opt.icon} size={18} color={colors.text} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <AppText weight="500" style={{ fontSize: 16 }}>
+                    {opt.label}
+                  </AppText>
+                  <AppText style={{ fontSize: 13, color: colors.textTertiary }}>{opt.hint}</AppText>
+                </View>
+                <AppIcon name="chevron-forward" size={14} color={colors.textGhost} />
+              </PressableScale>
+            ))}
+          </View>
+        ) : (
+          <>
+            <TextInput
+              value={rendirNota}
+              onChangeText={setRendirNota}
+              placeholder={`Nota sobre ${rendirItem?.notaMaxima ?? 12}`}
+              placeholderTextColor={colors.textFaint}
+              keyboardType="decimal-pad"
+              autoFocus
+              style={{
+                height: 52,
+                borderRadius: radii.sm,
+                backgroundColor: colors.bg,
+                paddingHorizontal: spacing.lg,
+                fontSize: 17,
+                color: colors.text,
+                fontFamily: "InstrumentSans_600SemiBold",
+              }}
+            />
+            <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
+              <PrimaryButton label="Volver" variant="ghost" flex onPress={() => setRendirPaso("opciones")} />
+              <PrimaryButton label="Guardar" flex disabled={!rendirNota.trim()} onPress={guardarNotaRendir} />
+            </View>
+          </>
+        )}
+      </BottomSheet>
+
       {/* + Nuevo */}
       <BottomSheet visible={nuevoSheetOpen} onClose={() => setNuevoSheetOpen(false)}>
-        <AppText weight="600" style={{ fontSize: 17 }}>
+        <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
           Crear nuevo
         </AppText>
-        {[
-          { icon: "book-outline" as const, label: "Materia", onPress: () => { setNuevoSheetOpen(false); router.push("/materia/nueva"); } },
-          { icon: "school-outline" as const, label: "Evaluación", onPress: () => abrirCrear({ kind: "materia", itemKind: "evaluacion" }) },
-          { icon: "checkbox-outline" as const, label: "Tarea", onPress: () => abrirCrear({ kind: "materia", itemKind: "tarea" }) },
-          { icon: "calendar-outline" as const, label: "Evento personal", onPress: () => abrirCrear({ kind: "personal" }) },
-        ].map((opt, i) => (
-          <PressableScale
-            key={opt.label}
-            scaleTo={0.99}
-            onPress={opt.onPress}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: spacing.md,
-              paddingVertical: spacing.md,
-              borderTopWidth: i === 0 ? 0 : 1,
-              borderTopColor: colors.borderFaint,
-            }}
-          >
-            <View style={{ width: 32, height: 32, borderRadius: radii.sm, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }}>
-              <AppIcon name={opt.icon} size={16} color={colors.text} />
-            </View>
-            <AppText weight="500" style={{ fontSize: 15 }}>
-              {opt.label}
-            </AppText>
-          </PressableScale>
-        ))}
+        <View>
+          {[
+            { icon: "book-outline" as const, label: "Materia", onPress: () => { setNuevoSheetOpen(false); router.push("/materia/nueva"); } },
+            { icon: "school-outline" as const, label: "Evaluación", onPress: () => abrirCrear({ kind: "materia", itemKind: "evaluacion" }) },
+            { icon: "checkbox-outline" as const, label: "Tarea", onPress: () => abrirCrear({ kind: "materia", itemKind: "tarea" }) },
+            { icon: "calendar-outline" as const, label: "Evento personal", onPress: () => abrirCrear({ kind: "personal" }) },
+          ].map((opt, i) => (
+            <PressableScale
+              key={opt.label}
+              scaleTo={0.99}
+              onPress={opt.onPress}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: spacing.lg,
+                minHeight: 56,
+                borderTopWidth: i === 0 ? 0 : 1,
+                borderTopColor: colors.borderFaint,
+              }}
+            >
+              <View style={{ width: 36, height: 36, borderRadius: radii.sm, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }}>
+                <AppIcon name={opt.icon} size={18} color={colors.text} />
+              </View>
+              <AppText weight="500" style={{ fontSize: 16, flex: 1 }}>
+                {opt.label}
+              </AppText>
+              <AppIcon name="chevron-forward" size={14} color={colors.textGhost} />
+            </PressableScale>
+          ))}
+        </View>
       </BottomSheet>
 
       {/* Crear evaluación/tarea/evento */}
@@ -720,121 +832,147 @@ export default function AgendaScreen() {
         <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
           {crearModo?.kind === "personal" ? "Nuevo evento personal" : crearModo?.kind === "materia" && crearModo.itemKind === "evaluacion" ? "Nueva evaluación" : "Nueva tarea"}
         </AppText>
-        <TextInput
-          value={creTitulo}
-          onChangeText={setCreTitulo}
-          placeholder="Título"
-          placeholderTextColor={colors.textFaint}
-          style={{
-            height: 48,
-            borderRadius: radii.sm,
-            backgroundColor: colors.bg,
-            paddingHorizontal: spacing.lg,
-            fontSize: 15,
-            color: colors.text,
-            fontFamily: "InstrumentSans_400Regular",
-          }}
-        />
-        {crearModo?.kind === "materia" ? (
-          materiasRowsActivo.length ? (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
-              {materiasRowsActivo.map((m) => (
-                <PressableScale key={m.id} scaleTo={0.96} onPress={() => setCreMateriaId(m.id)}>
-                  <Pill
-                    label={m.nombre}
-                    color={creMateriaId === m.id ? materiaColors[m.colorId].strong : colors.textSecondary}
-                    background={creMateriaId === m.id ? materiaColors[m.colorId].soft : colors.surfaceSoft}
-                    style={{ height: 32, paddingHorizontal: 13 }}
-                  />
-                </PressableScale>
-              ))}
-            </View>
-          ) : (
-            <AppText style={{ fontSize: 13, color: colors.textTertiary }}>No tenés materias cargadas en el semestre activo todavía.</AppText>
-          )
-        ) : (
-          <PressableScale scaleTo={0.98} onPress={() => setCreTodoElDia((v) => !v)}>
-            <Pill
-              label={creTodoElDia ? "Todo el día" : "Con horario"}
-              color={colors.accentText}
-              background={colors.accentSoft}
-              style={{ height: 32, paddingHorizontal: 13 }}
-            />
-          </PressableScale>
-        )}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
-          {fechaQuickOptions().map((o) => (
-            <PressableScale
-              key={o.value}
-              scaleTo={0.96}
-              onPress={() => {
-                setCreFecha(o.value);
-                setCalendarioAbierto(false);
-              }}
-            >
-              <Pill
-                label={o.label}
-                color={!calendarioAbierto && creFecha === o.value ? colors.accentText : colors.textSecondary}
-                background={!calendarioAbierto && creFecha === o.value ? colors.accentSoft : colors.surfaceSoft}
-                style={{ height: 32, paddingHorizontal: 13 }}
-              />
-            </PressableScale>
-          ))}
-          <PressableScale scaleTo={0.96} onPress={() => setCalendarioAbierto((v) => !v)}>
-            <Pill
-              label={calendarioAbierto || !fechaQuickOptions().some((o) => o.value === creFecha) ? formatFechaAgenda(creFecha) : "Elegir fecha"}
-              color={calendarioAbierto ? colors.accentText : colors.textSecondary}
-              background={calendarioAbierto ? colors.accentSoft : colors.surfaceSoft}
-              style={{ height: 32, paddingHorizontal: 13 }}
-            />
-          </PressableScale>
-        </View>
-        {calendarioAbierto ? (
-          <MiniCalendario
-            seleccionado={creFecha}
-            onSeleccionar={(iso) => {
-              setCreFecha(iso);
-              setCalendarioAbierto(false);
+
+        {/* Formulario con scroll propio: al abrir el calendario o el teclado
+            el sheet no puede crecer más que la pantalla, y Cancelar/Crear
+            quedan siempre a la vista fuera del scroll. */}
+        <ScrollView
+          style={{ maxHeight: windowHeight * 0.55 }}
+          contentContainerStyle={{ gap: spacing.xl, paddingBottom: spacing.xs }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <TextInput
+            value={creTitulo}
+            onChangeText={setCreTitulo}
+            placeholder="Título"
+            placeholderTextColor={colors.textFaint}
+            style={{
+              height: 52,
+              borderRadius: radii.sm,
+              backgroundColor: colors.bg,
+              paddingHorizontal: spacing.lg,
+              fontSize: 17,
+              color: colors.text,
+              fontFamily: "InstrumentSans_600SemiBold",
             }}
           />
-        ) : null}
-        {crearModo?.kind === "materia" ? (
-          <View style={{ gap: spacing.sm }}>
+
+          {crearModo?.kind === "materia" ? (
+            <CampoCrear label="Materia">
+              {materiasRowsActivo.length ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: spacing.sm }}>
+                  {materiasRowsActivo.map((m) => (
+                    <PressableScale key={m.id} scaleTo={0.96} onPress={() => setCreMateriaId(m.id)}>
+                      <Pill
+                        label={m.nombre}
+                        color={creMateriaId === m.id ? materiaColors[m.colorId].strong : colors.textSecondary}
+                        background={creMateriaId === m.id ? materiaColors[m.colorId].soft : colors.surfaceSoft}
+                        style={{ height: 36, paddingHorizontal: 14 }}
+                      />
+                    </PressableScale>
+                  ))}
+                </ScrollView>
+              ) : (
+                <AppText style={{ fontSize: 13, color: colors.textTertiary }}>No tenés materias cargadas en el semestre activo todavía.</AppText>
+              )}
+            </CampoCrear>
+          ) : null}
+
+          <CampoCrear label="Fecha">
             <PressableScale
-              scaleTo={0.98}
-              onPress={() => {
-                setCreConHorario((v) => !v);
-                if (creConHorario) setCreHora("");
+              scaleTo={0.99}
+              onPress={() => setCalendarioAbierto((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={`Fecha: ${formatFechaAgenda(creFecha)}. Abrir calendario`}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: spacing.md,
+                height: 52,
+                paddingHorizontal: spacing.lg,
+                borderRadius: radii.sm,
+                backgroundColor: colors.bg,
+                borderWidth: 1,
+                borderColor: calendarioAbierto ? colors.accent : "transparent",
               }}
             >
-              <Pill
-                label={creConHorario ? "Con horario" : "Sin horario"}
-                color={creConHorario ? colors.accentText : colors.textSecondary}
-                background={creConHorario ? colors.accentSoft : colors.surfaceSoft}
-                style={{ height: 32, paddingHorizontal: 13 }}
-              />
+              <AppIcon name="calendar-outline" size={18} color={colors.textSecondary} />
+              <AppText mono style={{ fontSize: 16, flex: 1 }}>
+                {formatFechaAgenda(creFecha)}
+              </AppText>
+              <AppIcon name={calendarioAbierto ? "chevron-up" : "chevron-down"} size={14} color={colors.textTertiary} />
             </PressableScale>
-            {creConHorario ? (
-              <TextInput
-                value={creHora}
-                onChangeText={setCreHora}
-                placeholder="HH:MM"
-                placeholderTextColor={colors.textFaint}
-                keyboardType="numbers-and-punctuation"
-                maxLength={5}
-                style={{
-                  height: 46,
-                  borderRadius: radii.sm,
-                  backgroundColor: colors.bg,
-                  paddingHorizontal: spacing.lg,
-                  fontSize: 15,
-                  color: colors.text,
-                  fontFamily: "InstrumentSans_600SemiBold",
+            {calendarioAbierto ? (
+              <MiniCalendario
+                seleccionado={creFecha}
+                onSeleccionar={(iso) => {
+                  setCreFecha(iso);
+                  setCalendarioAbierto(false);
                 }}
               />
-            ) : null}
-          </View>
-        ) : null}
+            ) : (
+              // Atajos como texto plano (sin relleno): así no se confunden
+              // con las píldoras de materia, que sí son selección con fondo.
+              <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: spacing.xl }}>
+                {fechaQuickOptions().map((o) => (
+                  <PressableScale key={o.value} scaleTo={0.96} onPress={() => setCreFecha(o.value)} style={{ minHeight: 36, justifyContent: "center" }}>
+                    <AppText weight={creFecha === o.value ? "600" : "500"} style={{ fontSize: 14, color: creFecha === o.value ? colors.accentText : colors.textSecondary }}>
+                      {o.label}
+                    </AppText>
+                  </PressableScale>
+                ))}
+              </View>
+            )}
+          </CampoCrear>
+
+          <CampoCrear label="Horario">
+            {crearModo?.kind === "materia" ? (
+              <>
+                <Segmented
+                  options={[
+                    { value: "sin", label: "Sin horario" },
+                    { value: "con", label: "Con horario" },
+                  ]}
+                  value={creConHorario ? "con" : "sin"}
+                  onChange={(v) => {
+                    setCreConHorario(v === "con");
+                    if (v === "sin") setCreHora("");
+                  }}
+                />
+                {creConHorario ? (
+                  <TextInput
+                    value={creHora}
+                    onChangeText={setCreHora}
+                    placeholder="HH:MM"
+                    placeholderTextColor={colors.textFaint}
+                    keyboardType="numbers-and-punctuation"
+                    maxLength={5}
+                    style={{
+                      height: 48,
+                      borderRadius: radii.sm,
+                      backgroundColor: colors.bg,
+                      paddingHorizontal: spacing.lg,
+                      fontSize: 16,
+                      color: colors.text,
+                      fontFamily: "InstrumentSans_600SemiBold",
+                    }}
+                  />
+                ) : null}
+              </>
+            ) : (
+              <Segmented
+                options={[
+                  { value: "dia", label: "Todo el día" },
+                  { value: "hora", label: "Con horario" },
+                ]}
+                value={creTodoElDia ? "dia" : "hora"}
+                onChange={(v) => setCreTodoElDia(v === "dia")}
+              />
+            )}
+          </CampoCrear>
+        </ScrollView>
+
         <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
           <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setCrearModo(null)} />
           <PrimaryButton label="Crear" flex disabled={!creTitulo.trim()} onPress={confirmarCrear} />
