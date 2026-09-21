@@ -25,6 +25,8 @@ import { getSemestreActivoId, semestresOrdenados } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
 import { DIAS_CORTOS, esCountdownUrgente, formatCountdown, formatFechaAgenda, parseISODate, PERSONAL_COLOR, today as agendaToday } from "@/lib/agenda";
 import { computeProximos, type ProximoItem } from "@/lib/proximos";
+import { computeCargaSemestre } from "@/lib/cargaSemestre";
+import { CargaSemestreWidget } from "@/components/CargaSemestreWidget";
 import { configurarCanalAndroid, getNotifPrefs, sincronizarNotificaciones } from "@/lib/notifications";
 
 const hoy = new Date();
@@ -190,6 +192,13 @@ export default function InicioScreen() {
     () => (materiasAll && agenda.rows && personalAll ? computeProximos(agenda.rows, materiasAll, personalAll, activeId, t7) : null),
     [materiasAll, agenda.rows, personalAll, activeId, t7]
   );
+  // Curva de carga: evaluaciones del semestre activo agrupadas por semana
+  // (widget "Curva del semestre", ver src/lib/cargaSemestre.ts).
+  const cargaSemestre = useMemo(() => {
+    if (!materiasAll || !agenda.rows) return null;
+    const semestre = semestres?.find((s) => s.id === activeId) ?? null;
+    return computeCargaSemestre(agendaDeSemestre(agenda.rows, materiasAll, activeId), materiasAll, semestre, t7);
+  }, [materiasAll, agenda.rows, semestres, activeId, t7]);
   const heroItem = proximos?.items[0] ?? null;
   const heroMateriaRaw = heroItem?.tipo === "materia" ? materiasAll?.find((m) => m.id === heroItem.item.materia_id) ?? null : null;
   const heroMateria = useMemo(
@@ -568,6 +577,13 @@ export default function InicioScreen() {
             ))}
           </View>
   
+          {/* Curva del semestre — desplegable: colapsada es una tarjeta chica
+              (curva + próxima evaluación); expandida se puede arrastrar para
+              ver las evaluaciones de cada semana. Se oculta sin evaluaciones. */}
+          {cargaSemestre && cargaSemestre.total > 0 ? (
+            <CargaSemestreWidget carga={cargaSemestre} onOpenEvaluacion={(id) => router.push(`/item/${id}?kind=materia`)} />
+          ) : null}
+
           {/* Esperando nota — evaluaciones ya rendidas sin calificar todavía,
               para que no se pierdan de vista; tap abre directo la carga de
               nota en Detalle de materia (ver evaluacionId en materia/[id]). */}

@@ -7,7 +7,7 @@
 import type { Tone } from "@/theme/tokens";
 
 export const DIAS_CORTOS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
-const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "set", "oct", "nov", "dic"];
+export const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "set", "oct", "nov", "dic"];
 export const MESES_LARGOS = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
   "julio", "agosto", "setiembre", "octubre", "noviembre", "diciembre",
