@@ -6,7 +6,7 @@
 // de reimplementarlo.
 import type { Tone } from "@/theme/tokens";
 
-const DIAS_CORTOS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+export const DIAS_CORTOS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "set", "oct", "nov", "dic"];
 export const MESES_LARGOS = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -20,6 +20,14 @@ export const PERSONAL_COLOR = "#8E8E93";
 export function today(): Date {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+// YYYY-MM-DD con los componentes *locales* de la fecha. toISOString() pasa
+// por UTC y corre el día cerca de la medianoche según el huso horario.
+export function toISODate(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
 export function parseISODate(iso: string): Date {

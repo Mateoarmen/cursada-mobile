@@ -14,6 +14,7 @@ export { PressableScale } from "./PressableScale";
 export { PrimaryButton } from "./PrimaryButton";
 export { ProgressRing } from "./ProgressRing";
 export { RangeSlider } from "./RangeSlider";
+export { Segmented } from "./Segmented";
 export { Reveal } from "./Reveal";
 export { Spotlight } from "./Spotlight";
 export { Switch } from "./Switch";

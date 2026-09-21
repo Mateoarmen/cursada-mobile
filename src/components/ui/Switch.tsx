@@ -11,12 +11,13 @@ const PAD = 2;
 type Props = {
   value: boolean;
   onValueChange?: (v: boolean) => void;
+  accessibilityLabel?: string;
 };
 
 // Track de contorno (sin relleno) con la perilla del mismo color — variante
 // de switch del design system, distinta del switch iOS "de fábrica" (track
 // sólido + perilla blanca) que usa el resto del ecosistema RN.
-export function Switch({ value, onValueChange }: Props) {
+export function Switch({ value, onValueChange, accessibilityLabel }: Props) {
   const { colors } = useTheme();
   const anim = useRef(new Animated.Value(value ? 1 : 0)).current;
 
@@ -25,13 +26,14 @@ export function Switch({ value, onValueChange }: Props) {
   }, [value, anim]);
 
   const translateX = anim.interpolate({ inputRange: [0, 1], outputRange: [0, WIDTH - THUMB - PAD * 2] });
-  const tint = value ? colors.accent : "rgba(255,255,255,0.2)";
+  const tint = value ? colors.accent : colors.textGhost;
 
   return (
     <PressableScale
       scaleTo={0.94}
       onPress={() => onValueChange?.(!value)}
       accessibilityRole="switch"
+      accessibilityLabel={accessibilityLabel}
       accessibilityState={{ checked: value }}
     >
       <Animated.View
