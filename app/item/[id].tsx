@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
-import { ActivityIndicator, Alert, ScrollView, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, TextInput, View, type TextInputProps } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
@@ -11,33 +11,65 @@ import { materiaComputadaToRow } from "@/lib/materias";
 import { getSemestreActivoId } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
 import { usePersonal } from "@/hooks/usePersonal";
-import { agendaBadgeInfo, formatFechaAgenda, today } from "@/lib/agenda";
+import { agendaBadgeInfo, diffDias, formatFechaAgenda, parseISODate, today } from "@/lib/agenda";
 
-function Card({ children }: { children: React.ReactNode }) {
-  const { colors } = useTheme();
-  return <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.xl, gap: spacing.lg }}>{children}</View>;
-}
+type IconName = Parameters<typeof AppIcon>[0]["name"];
 
-function AccionRow({ icon, label, color, onPress, first }: { icon: Parameters<typeof AppIcon>[0]["name"]; label: string; color?: string; onPress: () => void; first?: boolean }) {
+// Acción secundaria: media fila, ícono + rótulo. Reemplaza a la lista
+// vertical de filas-menú, que ponía al mismo nivel "Marcar como rendida"
+// y "Eliminar".
+function AccionTile({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
   const { colors } = useTheme();
   return (
     <PressableScale
-      scaleTo={0.99}
+      scaleTo={0.97}
       onPress={onPress}
       style={{
+        flexBasis: "48%",
+        flexGrow: 1,
+        minHeight: 52,
         flexDirection: "row",
         alignItems: "center",
         gap: spacing.md,
-        paddingVertical: spacing.md,
-        borderTopWidth: first ? 0 : 1,
-        borderTopColor: colors.borderFaint,
+        paddingHorizontal: spacing.lg,
+        borderRadius: radii.sm,
+        backgroundColor: colors.surface,
       }}
     >
-      <AppIcon name={icon} size={18} color={color ?? colors.text} />
-      <AppText weight="500" style={{ fontSize: 15, color: color ?? colors.text }}>
+      <AppIcon name={icon} size={18} color={colors.textSecondary} />
+      <AppText weight="500" numberOfLines={1} style={{ fontSize: 15, flexShrink: 1 }}>
         {label}
       </AppText>
     </PressableScale>
+  );
+}
+
+function Field({ label, flex, children }: { label: string; flex?: boolean; children: React.ReactNode }) {
+  const { colors } = useTheme();
+  return (
+    <View style={[{ gap: spacing.sm }, flex ? { flex: 1 } : null]}>
+      <AppText style={{ fontSize: 12, color: colors.textTertiary }}>{label}</AppText>
+      {children}
+    </View>
+  );
+}
+
+function FieldInput({ semibold, ...props }: TextInputProps & { semibold?: boolean }) {
+  const { colors } = useTheme();
+  return (
+    <TextInput
+      placeholderTextColor={colors.textFaint}
+      {...props}
+      style={{
+        height: 48,
+        borderRadius: radii.sm,
+        backgroundColor: colors.bg,
+        paddingHorizontal: spacing.lg,
+        fontSize: 16,
+        color: colors.text,
+        fontFamily: semibold ? "InstrumentSans_600SemiBold" : "InstrumentSans_400Regular",
+      }}
+    />
   );
 }
 
@@ -54,7 +86,7 @@ function AccionRow({ icon, label, color, onPress, first }: { icon: Parameters<ty
 // query param, ver onPressItem en agenda.tsx).
 export default function ItemDetalleScreen() {
   const { colors, tone } = useTheme();
-  const { id, kind } = useLocalSearchParams<{ id: string; kind?: string }>();
+  const { id, kind, desde } = useLocalSearchParams<{ id: string; kind?: string; desde?: string }>();
   const esPersonal = kind === "personal";
 
   const agenda = useAgenda();
@@ -258,98 +290,124 @@ export default function ItemDetalleScreen() {
     : { tone: "neutral" as const, label: item.todoElDia ? "Todo el día" : "Personal" };
   const badgeTone = tone[badge.tone];
 
+  const esEval = !esPersonal && item.itemKind === "evaluacion";
+  const tieneNota = item.nota != null;
+  const tituloPantalla = esPersonal ? "Evento" : esEval ? "Evaluación" : "Tarea";
+
+  // Distancia en días sólo mientras el ítem sigue pendiente — una vez
+  // rendido/entregado ya no informa nada y el badge de estado alcanza.
+  const dias = diffDias(parseISODate(item.fecha), t);
+  const relativo = item.hecho
+    ? null
+    : dias === 0
+      ? "Hoy"
+      : dias === 1
+        ? "Mañana"
+        : dias > 1
+          ? `En ${dias} días`
+          : `Hace ${Math.abs(dias)} ${Math.abs(dias) === 1 ? "día" : "días"}`;
+
+  const accionPrincipal = esPersonal
+    ? null
+    : !item.hecho
+      ? { label: esEval ? "Marcar como rendida" : "Marcar como entregada", onPress: marcarRendida }
+      : esEval && !tieneNota
+        ? { label: "Asignar nota", onPress: abrirNota }
+        : null;
+
+  const acciones: { icon: IconName; label: string; onPress: () => void }[] = [];
+  if (!esPersonal) {
+    if (item.hecho) acciones.push({ icon: "arrow-undo-outline", label: "Marcar pendiente", onPress: marcarPendiente });
+    if (esEval && (tieneNota || !item.hecho)) {
+      acciones.push({ icon: tieneNota ? "create-outline" : "add-circle-outline", label: tieneNota ? "Editar nota" : "Asignar nota", onPress: abrirNota });
+    }
+    acciones.push({ icon: "create-outline", label: "Editar", onPress: abrirEditar });
+  }
+  if (materia && desde !== "materia") acciones.push({ icon: "folder-outline", label: "Ver materia", onPress: () => router.push(`/materia/${materia.id}`) });
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
       <Spotlight height={280} />
       <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
         <BackButton />
         <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
-          Detalle
+          {tituloPantalla}
         </AppText>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxxl, gap: spacing.xl }} showsVerticalScrollIndicator={false}>
-        <Reveal style={{ gap: spacing.xl }}>
-          <Card>
-            <View style={{ gap: spacing.xs }}>
-              <AppText weight="700" style={{ fontSize: 22, letterSpacing: -0.4 }}>
-                {item.titulo}
-              </AppText>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                {materia ? (
-                  <Pill label={materia.nombre} background={accent.soft} color={accent.strong} style={{ height: 22, paddingHorizontal: 9 }} />
-                ) : null}
-                <AppText style={{ fontSize: 13, color: colors.textTertiary }}>{item.tipo}</AppText>
-              </View>
-            </View>
-
-            <View style={{ gap: spacing.sm }}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <AppText style={{ fontSize: 13, color: colors.textTertiary }}>Fecha</AppText>
-                <AppText mono weight="500" style={{ fontSize: 13 }}>
-                  {formatFechaAgenda(item.fecha, item.todoElDia ? undefined : item.hora)}
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.xxxl * 2, gap: spacing.xxl }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
+        <Reveal style={{ gap: spacing.xxl }}>
+          {/* Identidad: qué es y en qué estado está */}
+          <View style={{ gap: spacing.md }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" }}>
+              {materia ? <Pill label={materia.nombre} background={accent.soft} color={accent.strong} /> : null}
+              {item.tipo ? (
+                <AppText weight="500" style={{ fontSize: 13, color: colors.textTertiary }}>
+                  {item.tipo}
                 </AppText>
-              </View>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <AppText style={{ fontSize: 13, color: colors.textTertiary }}>Estado</AppText>
-                <Pill label={badge.label} color={badgeTone.text} background={badgeTone.soft} style={{ height: 22, paddingHorizontal: 9 }} />
-              </View>
-              {item.nota != null ? (
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                  <AppText style={{ fontSize: 13, color: colors.textTertiary }}>Nota</AppText>
-                  <AppText mono weight="600" style={{ fontSize: 13 }}>
-                    {item.nota}/{item.notaMaxima ?? 12}
-                  </AppText>
-                </View>
               ) : null}
             </View>
-          </Card>
+            <AppText weight="700" style={{ fontSize: 30, lineHeight: 34, letterSpacing: -0.7 }}>
+              {item.titulo}
+            </AppText>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.smd }}>
+              <Pill label={badge.label} color={badgeTone.text} background={badgeTone.soft} />
+              {relativo ? (
+                <AppText weight="500" style={{ fontSize: 13, color: colors.textSecondary }}>
+                  {relativo}
+                </AppText>
+              ) : null}
+            </View>
+          </View>
+
+          {/* Datos: fecha y nota lado a lado en una sola superficie */}
+          <View style={{ flexDirection: "row", backgroundColor: colors.surface, borderRadius: radii.lg }}>
+            <View style={{ flex: 1, padding: spacing.xl, gap: spacing.xs }}>
+              <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Fecha</AppText>
+              <AppText mono style={{ fontSize: 17 }}>
+                {formatFechaAgenda(item.fecha, item.todoElDia ? undefined : item.hora)}
+              </AppText>
+            </View>
+            {esEval || item.notaMaxima != null ? (
+              <>
+                <View style={{ width: 1, backgroundColor: colors.borderFaint, marginVertical: spacing.lg }} />
+                <View style={{ flex: 1, padding: spacing.xl, gap: spacing.xs }}>
+                  <AppText style={{ fontSize: 12, color: colors.textTertiary }}>{esEval ? "Nota" : "Peso"}</AppText>
+                  {esEval && tieneNota ? (
+                    <AppText mono style={{ fontSize: 17 }}>
+                      {item.nota}
+                      <AppText mono style={{ fontSize: 17, color: colors.textTertiary }}> / {item.notaMaxima ?? 12}</AppText>
+                    </AppText>
+                  ) : (
+                    <AppText mono style={{ fontSize: 17, color: colors.textTertiary }}>
+                      {esEval ? `Sin cargar` : item.notaMaxima}
+                    </AppText>
+                  )}
+                </View>
+              </>
+            ) : null}
+          </View>
 
           {!esPersonal && editando ? (
-            <Card>
-              <AppText weight="600" style={{ fontSize: 15 }}>
-                Editar {item.itemKind === "evaluacion" ? "evaluación" : "tarea"}
+            <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.xl, gap: spacing.xl }}>
+              <AppText weight="600" style={{ fontSize: 17, letterSpacing: -0.2 }}>
+                Editar {esEval ? "evaluación" : "tarea"}
               </AppText>
 
-              <View style={{ gap: 6 }}>
-                <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Título</AppText>
-                <TextInput
-                  value={editTitulo}
-                  onChangeText={setEditTitulo}
-                  placeholderTextColor={colors.textFaint}
-                  style={{
-                    height: 46,
-                    borderRadius: radii.sm,
-                    backgroundColor: colors.bg,
-                    paddingHorizontal: spacing.lg,
-                    fontSize: 15,
-                    color: colors.text,
-                    fontFamily: "InstrumentSans_400Regular",
-                  }}
-                />
-              </View>
+              <Field label="Título">
+                <FieldInput value={editTitulo} onChangeText={setEditTitulo} />
+              </Field>
 
-              <View style={{ gap: 6 }}>
-                <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Tipo</AppText>
-                <TextInput
-                  value={editTipo}
-                  onChangeText={setEditTipo}
-                  placeholder="Ej. Parcial, Entrega, Quiz"
-                  placeholderTextColor={colors.textFaint}
-                  style={{
-                    height: 46,
-                    borderRadius: radii.sm,
-                    backgroundColor: colors.bg,
-                    paddingHorizontal: spacing.lg,
-                    fontSize: 15,
-                    color: colors.text,
-                    fontFamily: "InstrumentSans_400Regular",
-                  }}
-                />
-              </View>
+              <Field label="Tipo">
+                <FieldInput value={editTipo} onChangeText={setEditTipo} placeholder="Ej. Parcial, Entrega, Quiz" />
+              </Field>
 
-              <View style={{ gap: 6 }}>
-                <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Materia</AppText>
+              <Field label="Materia">
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
                   {materiaOpts.map((o) => (
                     <PressableScale key={o.value} scaleTo={0.96} onPress={() => setEditMateriaId(o.value)}>
@@ -361,10 +419,9 @@ export default function ItemDetalleScreen() {
                     </PressableScale>
                   ))}
                 </View>
-              </View>
+              </Field>
 
-              <View style={{ gap: 6 }}>
-                <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Fecha</AppText>
+              <Field label="Fecha">
                 <PressableScale scaleTo={0.98} onPress={() => setEditCalendarioAbierto((v) => !v)}>
                   <Pill
                     label={formatFechaAgenda(editFecha)}
@@ -381,48 +438,16 @@ export default function ItemDetalleScreen() {
                     }}
                   />
                 ) : null}
-              </View>
+              </Field>
 
               <View style={{ flexDirection: "row", gap: spacing.smd }}>
-                <View style={{ flex: 1, gap: 6 }}>
-                  <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Peso (nota máxima)</AppText>
-                  <TextInput
-                    value={editNotaMax}
-                    onChangeText={setEditNotaMax}
-                    placeholder="Ej. 12"
-                    placeholderTextColor={colors.textFaint}
-                    keyboardType="decimal-pad"
-                    style={{
-                      height: 46,
-                      borderRadius: radii.sm,
-                      backgroundColor: colors.bg,
-                      paddingHorizontal: spacing.lg,
-                      fontSize: 15,
-                      color: colors.text,
-                      fontFamily: "InstrumentSans_600SemiBold",
-                    }}
-                  />
-                </View>
-                {item.itemKind === "evaluacion" ? (
-                  <View style={{ flex: 1, gap: 6 }}>
-                    <AppText style={{ fontSize: 12, color: colors.textTertiary }}>Nota</AppText>
-                    <TextInput
-                      value={editNota}
-                      onChangeText={setEditNota}
-                      placeholder="Sin cargar"
-                      placeholderTextColor={colors.textFaint}
-                      keyboardType="decimal-pad"
-                      style={{
-                        height: 46,
-                        borderRadius: radii.sm,
-                        backgroundColor: colors.bg,
-                        paddingHorizontal: spacing.lg,
-                        fontSize: 15,
-                        color: colors.text,
-                        fontFamily: "InstrumentSans_600SemiBold",
-                      }}
-                    />
-                  </View>
+                <Field label="Peso (nota máxima)" flex>
+                  <FieldInput value={editNotaMax} onChangeText={setEditNotaMax} placeholder="Ej. 12" keyboardType="decimal-pad" semibold />
+                </Field>
+                {esEval ? (
+                  <Field label="Nota" flex>
+                    <FieldInput value={editNota} onChangeText={setEditNota} placeholder="Sin cargar" keyboardType="decimal-pad" semibold />
+                  </Field>
                 ) : null}
               </View>
 
@@ -430,51 +455,51 @@ export default function ItemDetalleScreen() {
                 <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setEditando(false)} />
                 <PrimaryButton label="Guardar" flex disabled={!editTitulo.trim()} onPress={confirmarEditar} />
               </View>
-            </Card>
+            </View>
           ) : (
-            <Card>
-              {!esPersonal ? (
-                <AccionRow
-                  first
-                  icon={item.hecho ? "arrow-undo-outline" : "checkmark-circle-outline"}
-                  label={item.hecho ? "Marcar como pendiente" : item.itemKind === "evaluacion" ? "Marcar como rendida" : "Marcar como entregada"}
-                  onPress={item.hecho ? marcarPendiente : marcarRendida}
-                />
+            <View style={{ gap: spacing.lg }}>
+              {accionPrincipal ? <PrimaryButton label={accionPrincipal.label} onPress={accionPrincipal.onPress} /> : null}
+
+              {acciones.length > 0 ? (
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.smd }}>
+                  {acciones.map((a) => (
+                    <AccionTile key={a.label} icon={a.icon} label={a.label} onPress={a.onPress} />
+                  ))}
+                </View>
               ) : null}
-              {!esPersonal && item.itemKind === "evaluacion" ? (
-                <AccionRow icon={item.nota != null ? "create-outline" : "add-circle-outline"} label={item.nota != null ? "Editar nota" : "Asignar nota"} onPress={abrirNota} />
-              ) : null}
-              {!esPersonal && item.itemKind === "evaluacion" && item.nota != null ? (
-                <AccionRow icon="close-circle-outline" label="Quitar nota" color={colors.dangerText} onPress={quitarNota} />
-              ) : null}
-              {!esPersonal ? <AccionRow icon="create-outline" label="Editar" onPress={abrirEditar} /> : null}
-              {materia ? <AccionRow icon="folder-outline" label="Ver materia" onPress={() => router.push(`/materia/${materia.id}`)} /> : null}
-              <AccionRow icon="trash-outline" label="Eliminar" color={colors.dangerText} onPress={eliminar} first={esPersonal} />
-            </Card>
+
+              {/* Destructivo: separado del resto, sin peso visual */}
+              <View style={{ flexDirection: "row", justifyContent: "center", gap: spacing.xl, paddingTop: spacing.lg }}>
+                {esEval && tieneNota ? (
+                  <PressableScale scaleTo={0.97} onPress={quitarNota} style={{ minHeight: 44, justifyContent: "center" }}>
+                    <AppText weight="500" style={{ fontSize: 15, color: colors.dangerText }}>
+                      Quitar nota
+                    </AppText>
+                  </PressableScale>
+                ) : null}
+                <PressableScale scaleTo={0.97} onPress={eliminar} style={{ minHeight: 44, justifyContent: "center" }}>
+                  <AppText weight="500" style={{ fontSize: 15, color: colors.dangerText }}>
+                    Eliminar
+                  </AppText>
+                </PressableScale>
+              </View>
+            </View>
           )}
         </Reveal>
       </ScrollView>
+
 
       <BottomSheet visible={notaSheetAbierto} onClose={() => setNotaSheetAbierto(false)}>
         <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
           {item.nota != null ? "Editar nota" : "Asignar nota"}
         </AppText>
-        <TextInput
+        <FieldInput
           value={notaValor}
           onChangeText={setNotaValor}
           placeholder={`Nota sobre ${item.notaMaxima ?? 12}`}
-          placeholderTextColor={colors.textFaint}
           keyboardType="decimal-pad"
           autoFocus
-          style={{
-            height: 46,
-            borderRadius: radii.sm,
-            backgroundColor: colors.bg,
-            paddingHorizontal: spacing.lg,
-            fontSize: 15,
-            color: colors.text,
-            fontFamily: "InstrumentSans_600SemiBold",
-          }}
+          semibold
         />
         <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
           <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setNotaSheetAbierto(false)} />
