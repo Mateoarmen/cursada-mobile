@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
-import { Platform, ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
+import { AppState, Platform, ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { useSession } from "@/hooks/useSession";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
 import { supabase } from "@/lib/supabase";
@@ -15,9 +14,7 @@ import {
   Avatar,
   BrandMark,
   CtaGlow,
-  Pill,
   PressableScale,
-  PrimaryButton,
   ProgressRing,
   Reveal,
   Spotlight,
@@ -26,7 +23,7 @@ import {
 import { agendaDeSemestre, computeKpis, computeMateria, computeMaterias, computeProgresoSemestreActivo, formatValor, unidad } from "@/lib/materias";
 import { getSemestreActivoId, semestresOrdenados } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
-import { agendaBadgeInfo, esCountdownUrgente, formatCountdown, formatFechaAgenda, PERSONAL_COLOR, today as agendaToday } from "@/lib/agenda";
+import { DIAS_CORTOS, esCountdownUrgente, formatCountdown, formatFechaAgenda, parseISODate, PERSONAL_COLOR, today as agendaToday } from "@/lib/agenda";
 import { computeProximos, type ProximoItem } from "@/lib/proximos";
 import { configurarCanalAndroid, getNotifPrefs, sincronizarNotificaciones } from "@/lib/notifications";
 
@@ -84,39 +81,55 @@ export default function InicioScreen() {
   // como si la pantalla hubiese quedado en blanco.
   const [fetchError, setFetchError] = useState(false);
   const agenda = useAgenda();
+  const { refetch: refetchAgenda } = agenda;
   const lastFetchedAtRef = useRef(0);
+
+  // useAgenda() no es un store compartido (cada pantalla tiene su copia de
+  // `rows`), así que sin este refetch las notas cargadas en Detalle de
+  // ítem/materia o desde la web dejaban a los widgets de Inicio con datos
+  // viejos. Se pide siempre (sin throttle) junto con materias/personal.
+  const cargar = useCallback(async (isCancelado: () => boolean = () => false) => {
+    try {
+      const [{ data: materias }, { data: personal }, sems, id] = await Promise.all([
+        supabase.from("materias").select("*"),
+        supabase.from("personal").select("*"),
+        semestresOrdenados(),
+        getSemestreActivoId(),
+        refetchAgenda(),
+      ]);
+      if (isCancelado()) return;
+      lastFetchedAtRef.current = Date.now();
+      setFetchError(false);
+      setMateriasAll(materias ?? []);
+      setPersonalAll(personal ?? []);
+      setSemestres(sems);
+      setActiveId(id);
+    } catch {
+      if (isCancelado()) return;
+      setFetchError(true);
+    }
+  }, [refetchAgenda]);
 
   useFocusEffect(
     useCallback(() => {
-      const now = Date.now();
-      if (now - lastFetchedAtRef.current < FOCUS_REFETCH_MIN_INTERVAL_MS) return;
-
       let cancelado = false;
-      (async () => {
-        try {
-          const [{ data: materias }, { data: personal }, sems, id] = await Promise.all([
-            supabase.from("materias").select("*"),
-            supabase.from("personal").select("*"),
-            semestresOrdenados(),
-            getSemestreActivoId(),
-          ]);
-          if (cancelado) return;
-          lastFetchedAtRef.current = Date.now();
-          setFetchError(false);
-          setMateriasAll(materias ?? []);
-          setPersonalAll(personal ?? []);
-          setSemestres(sems);
-          setActiveId(id);
-        } catch {
-          if (cancelado) return;
-          setFetchError(true);
-        }
-      })();
+      cargar(() => cancelado);
       return () => {
         cancelado = true;
       };
-    }, [])
+    }, [cargar])
   );
+
+  // Cambios hechos desde la web (u otro dispositivo) mientras la app estaba
+  // en background no disparan foco: refrescar al volver a foreground.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (estado) => {
+      if (estado !== "active") return;
+      if (Date.now() - lastFetchedAtRef.current < FOCUS_REFETCH_MIN_INTERVAL_MS) return;
+      cargar();
+    });
+    return () => sub.remove();
+  }, [cargar]);
 
   // Recordatorios locales: se reconcilian acá (no en cada mutación
   // puntual de agenda/horario) porque Inicio es la pantalla que de
@@ -183,8 +196,6 @@ export default function InicioScreen() {
     () => (heroMateriaRaw && agenda.rows ? computeMateria(heroMateriaRaw, agenda.rows) : null),
     [heroMateriaRaw, agenda.rows]
   );
-  const heroBadge =
-    heroItem?.tipo === "materia" ? agendaBadgeInfo({ hecho: heroItem.item.hecho, itemKind: heroItem.item.kind, nota: heroItem.item.nota, fecha: heroItem.item.fecha }, t7) : null;
   const heroMeta =
     heroItem?.tipo === "materia"
       ? `${heroMateriaRaw ? heroMateriaRaw.nombre + " · " : ""}${heroItem.item.hora ? heroItem.item.hora + " · " : ""}${heroItem.item.tipo}`
@@ -205,6 +216,9 @@ export default function InicioScreen() {
       (proximos?.items ?? []).map((p: ProximoItem) => {
         const hora = p.tipo === "materia" ? p.item.hora || undefined : p.item.todo_el_dia ? undefined : p.item.hora || undefined;
         const fechaLabel = formatFechaAgenda(p.item.fecha, hora);
+        const fechaObj = parseISODate(p.item.fecha);
+        const dia = String(fechaObj.getDate());
+        const dow = DIAS_CORTOS[fechaObj.getDay()] ?? "";
         const countdown = formatCountdown(p.item.fecha, hora, new Date());
         const urgente = esCountdownUrgente(p.item.fecha);
         if (p.tipo === "materia") {
@@ -212,20 +226,26 @@ export default function InicioScreen() {
           const colorId = m?.color_id && m.color_id in materiaColors ? (m.color_id as MateriaColorId) : "gris";
           return {
             id: p.item.id,
+            kind: "materia" as const,
             titulo: p.item.titulo,
             detalle: `${m ? m.nombre + " · " : ""}${p.item.hora ? p.item.hora + " · " : ""}${p.item.tipo}`,
             color: materiaColors[colorId].strong,
             fechaLabel,
+            dia,
+            dow,
             countdown,
             urgente,
           };
         }
         return {
           id: p.item.id,
+          kind: "personal" as const,
           titulo: p.item.titulo,
           detalle: p.item.todo_el_dia ? "Todo el día" : p.item.hora || "Personal",
           color: PERSONAL_COLOR,
           fechaLabel,
+          dia,
+          dow,
           countdown,
           urgente,
         };
@@ -298,84 +318,95 @@ export default function InicioScreen() {
             aparecía de golpe sin transición). Un solo momento autoral para
             todo el bloque, no una entrada por sección. */}
         {dataReady ? (
-          <Reveal style={{ gap: spacing.xl }}>
+          <Reveal style={{ gap: spacing.xxl }}>
           {/* Lo próximo — réplica de renderInicioHero() (runtime.js): usa
-              proximos[0] (ver src/lib/proximos.ts). Materia: badge de estado
-              (mismo criterio que Agenda, agendaBadgeInfo), + barra de
+              proximos[0] (ver src/lib/proximos.ts). Materia: barra de
               progreso/riesgoTxt si la materia ya tiene notas cargadas.
-              Personal: badge fijo "Personal", sin barra de progreso. */}
+              Personal: píldora fija "Personal", sin barra de progreso. */}
           {heroItem ? (
-            <LinearGradient
-              colors={[colors.accent, "rgba(44,123,255,0.15)", "rgba(255,255,255,0.06)"]}
-              locations={[0, 0.6, 1]}
-              start={{ x: 0.1, y: 0 }}
-              end={{ x: 0.9, y: 1 }}
-              style={{ borderRadius: radii.xxl, padding: 1.5 }}
-            >
-              <View style={{ borderRadius: radii.xxl - 1.5, backgroundColor: colors.surfaceRaised, padding: spacing.xl, gap: spacing.lg }}>
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                  <AppText weight="700" style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: colors.accentText }}>
-                    Lo próximo
-                  </AppText>
-                  {heroItem.tipo === "materia" && heroBadge ? (
-                    <Pill label={heroBadge.label} color={tone[heroBadge.tone].text} background={tone[heroBadge.tone].soft} mono />
-                  ) : (
-                    <Pill label="Personal" color={tone.neutral.text} background={tone.neutral.soft} mono />
-                  )}
-                </View>
-                <View style={{ gap: spacing.xs }}>
-                  <AppText weight="700" style={{ fontSize: 23, letterSpacing: -0.4, lineHeight: 29 }}>
-                    {heroItem.item.titulo}
-                  </AppText>
-                  <AppText style={{ fontSize: 14, color: colors.textSecondary }}>{heroMeta}</AppText>
-                </View>
-                {heroItem.tipo === "materia" && heroMateria && heroMateria.actual != null ? (
-                  <View style={{ gap: spacing.sm }}>
-                    <View style={{ height: 6, borderRadius: radii.round, backgroundColor: colors.surfaceSoft, overflow: "hidden" }}>
-                      <View
-                        style={{
-                          width: `${Math.max(0, Math.min(100, (heroMateria.actual / heroMateria.esc.total) * 100))}%`,
-                          height: "100%",
-                          borderRadius: radii.round,
-                          backgroundColor: TONE_COLOR[heroMateria.tone],
-                        }}
-                      />
-                    </View>
-                    <AppText style={{ fontSize: 13, color: colors.textTertiary }}>
-                      {heroMateria.riesgoTxt ||
-                        `Vas aprobando · aprobás con ${formatValor(heroMateria.esc.aprob, heroMateria.esc.tipo)}${unidad(heroMateria.esc.tipo)}.`}
+            // Pico de la pantalla: única superficie rellena de azul de marca
+            // (el resto de Inicio es superficie plana), con el tiempo que
+            // falta como protagonista tipográfico. Relleno plano accentDeep
+            // (no el degradé del borde anterior) para que el texto blanco
+            // pase 4.5:1 en cualquier punto de la tarjeta.
+            <View style={{ borderRadius: radii.xxl, backgroundColor: colors.accentDeep, padding: spacing.xl, paddingTop: spacing.xxl, gap: spacing.xl }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <AppText weight="600" style={{ fontSize: 14, color: "rgba(255,255,255,0.88)" }}>
+                  Lo próximo
+                </AppText>
+                {heroItem.tipo === "personal" ? (
+                  <View style={{ minHeight: 24, paddingHorizontal: 11, borderRadius: radii.round, backgroundColor: "rgba(0,0,0,0.22)", alignItems: "center", justifyContent: "center" }}>
+                    <AppText weight="600" style={{ fontSize: 12, color: colors.white }}>
+                      Personal
                     </AppText>
                   </View>
                 ) : null}
-                <View style={{ flexDirection: "row", gap: spacing.sm }}>
-                  {heroItem.tipo === "materia" ? (
-                    <PrimaryButton
-                      label="Abrir materia"
-                      flex
-                      style={{ minHeight: 40 }}
-                      onPress={() => heroMateriaRaw && router.push(`/materia/${heroMateriaRaw.id}`)}
-                    />
-                  ) : (
-                    <PrimaryButton
-                      label="Ver en agenda"
-                      flex
-                      style={{ minHeight: 40 }}
-                      onPress={() => router.push(`/item/${heroItem.item.id}?kind=personal`)}
-                    />
-                  )}
-                  {heroItem.tipo === "materia" ? (
-                    <PrimaryButton
-                      label="Ver en agenda"
-                      variant="ghost"
-                      style={{ minHeight: 40, paddingHorizontal: spacing.lg }}
-                      onPress={() => router.push(`/item/${heroItem.item.id}?kind=materia`)}
-                    />
-                  ) : null}
-                </View>
               </View>
-            </LinearGradient>
+
+              <View style={{ gap: spacing.sm }}>
+                {proximosDiasRows[0]?.countdown ? (
+                  <AppText mono numberOfLines={1} adjustsFontSizeToFit style={{ fontSize: 46, lineHeight: 50, letterSpacing: -1.4, color: colors.white }}>
+                    {proximosDiasRows[0].countdown}
+                  </AppText>
+                ) : null}
+                <AppText weight="700" style={{ fontSize: 22, letterSpacing: -0.4, lineHeight: 27, color: colors.white }}>
+                  {heroItem.item.titulo}
+                </AppText>
+                <AppText weight="500" style={{ fontSize: 14, color: "rgba(255,255,255,0.88)" }}>
+                  {heroMeta}
+                </AppText>
+              </View>
+
+              {heroItem.tipo === "materia" && heroMateria && heroMateria.actual != null ? (
+                <View style={{ gap: spacing.sm }}>
+                  <View style={{ height: 6, borderRadius: radii.round, backgroundColor: "rgba(255,255,255,0.22)", overflow: "hidden" }}>
+                    <View
+                      style={{
+                        width: `${Math.max(0, Math.min(100, (heroMateria.actual / heroMateria.esc.total) * 100))}%`,
+                        height: "100%",
+                        borderRadius: radii.round,
+                        backgroundColor: colors.white,
+                      }}
+                    />
+                  </View>
+                  <AppText style={{ fontSize: 13, color: "rgba(255,255,255,0.88)" }}>
+                    {heroMateria.riesgoTxt ||
+                      `Vas aprobando · aprobás con ${formatValor(heroMateria.esc.aprob, heroMateria.esc.tipo)}${unidad(heroMateria.esc.tipo)}.`}
+                  </AppText>
+                </View>
+              ) : null}
+
+              <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                <PressableScale
+                  scaleTo={0.97}
+                  accessibilityRole="button"
+                  onPress={() =>
+                    heroItem.tipo === "materia"
+                      ? heroMateriaRaw && router.push(`/materia/${heroMateriaRaw.id}`)
+                      : router.push(`/item/${heroItem.item.id}?kind=personal`)
+                  }
+                  style={{ flex: 1, minHeight: 48, borderRadius: radii.sm, backgroundColor: colors.white, alignItems: "center", justifyContent: "center" }}
+                >
+                  <AppText weight="600" style={{ fontSize: 16, color: colors.accentDeep }}>
+                    {heroItem.tipo === "materia" ? "Abrir materia" : "Ver en agenda"}
+                  </AppText>
+                </PressableScale>
+                {heroItem.tipo === "materia" ? (
+                  <PressableScale
+                    scaleTo={0.97}
+                    accessibilityRole="button"
+                    onPress={() => router.push(`/item/${heroItem.item.id}?kind=materia`)}
+                    style={{ minHeight: 48, paddingHorizontal: spacing.xl, borderRadius: radii.sm, backgroundColor: "rgba(0,0,0,0.22)", alignItems: "center", justifyContent: "center" }}
+                  >
+                    <AppText weight="600" style={{ fontSize: 16, color: colors.white }}>
+                      Ver en agenda
+                    </AppText>
+                  </PressableScale>
+                ) : null}
+              </View>
+            </View>
           ) : null}
-  
+
           {/* KPIs — réplica de computeKpis() (runtime.js): "Cursando" es un
               agregado propio de mobile (no existe en la web), las otras 3 sí
               (Próxima evaluación se OCULTA sin nada pendiente, Promedio
@@ -462,7 +493,7 @@ export default function InicioScreen() {
   
           {/* Accesos rápidos */}
           <View>
-            <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2, paddingBottom: spacing.sm }}>
+            <AppText weight="600" style={{ fontSize: 13, color: colors.textTertiary, paddingBottom: spacing.md }}>
               Accesos rápidos
             </AppText>
             <View style={{ flexDirection: "row", gap: spacing.smd }}>
@@ -480,10 +511,8 @@ export default function InicioScreen() {
               computeProximos() ("Próximos 7 días" / "Este mes" / nombre del
               mes siguiente), ver src/lib/proximos.ts. */}
           <View>
-            <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingBottom: spacing.sm }}>
-              <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
-                {proximos?.titulo ?? "Próximos 7 días"}
-              </AppText>
+            <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingBottom: spacing.md }}>
+              <Titulo>{proximos?.titulo ?? "Próximos 7 días"}</Titulo>
               <PressableScale
                 onPress={() => router.push("/(tabs)/agenda")}
                 hitSlop={8}
@@ -500,8 +529,12 @@ export default function InicioScreen() {
               </AppText>
             ) : null}
             {proximosDiasRows.map((item) => (
-              <View
+              <PressableScale
                 key={item.id}
+                scaleTo={0.98}
+                onPress={() => router.push(`/item/${item.id}?kind=${item.kind}`)}
+                accessibilityRole="button"
+                accessibilityLabel={`${item.titulo}, ${item.detalle}, ${item.fechaLabel}, ${item.countdown}`}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -511,22 +544,27 @@ export default function InicioScreen() {
                   borderTopColor: colors.borderSoft,
                 }}
               >
-                <View style={{ width: 3, height: 30, borderRadius: radii.round, backgroundColor: item.color }} />
+                <View style={{ width: 3, alignSelf: "stretch", borderRadius: radii.round, backgroundColor: item.color }} />
+                <View style={{ width: 40, alignItems: "center" }}>
+                  <AppText weight="700" style={{ fontSize: 26, lineHeight: 30, letterSpacing: -0.6 }}>
+                    {item.dia}
+                  </AppText>
+                  <AppText weight="500" style={{ fontSize: 12, color: colors.textTertiary }}>
+                    {item.dow}
+                  </AppText>
+                </View>
                 <View style={{ flex: 1, gap: 2 }}>
-                  <AppText weight="500" style={{ fontSize: 15 }}>
+                  <AppText weight="600" style={{ fontSize: 16 }} numberOfLines={2}>
                     {item.titulo}
                   </AppText>
-                  <AppText style={{ fontSize: 13, color: colors.textTertiary }}>{item.detalle}</AppText>
-                </View>
-                <View style={{ alignItems: "flex-end", gap: 3 }}>
-                  <AppText mono style={{ fontSize: 11, color: colors.textFaint }}>
-                    {item.fechaLabel}
-                  </AppText>
-                  <AppText mono weight="600" style={{ fontSize: 12, color: item.urgente ? colors.warningText : colors.textFaint }}>
-                    {item.countdown}
+                  <AppText style={{ fontSize: 13, color: colors.textTertiary }} numberOfLines={1}>
+                    {item.detalle}
                   </AppText>
                 </View>
-              </View>
+                <AppText mono weight="600" style={{ fontSize: 13, color: item.urgente ? colors.warningText : colors.textTertiary }}>
+                  {item.countdown}
+                </AppText>
+              </PressableScale>
             ))}
           </View>
   
@@ -535,9 +573,9 @@ export default function InicioScreen() {
               nota en Detalle de materia (ver evaluacionId en materia/[id]). */}
           {esperandoNota.length > 0 ? (
             <View>
-              <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2, paddingBottom: spacing.sm }}>
-                Esperando nota
-              </AppText>
+              <View style={{ paddingBottom: spacing.md }}>
+                <Titulo>Esperando nota</Titulo>
+              </View>
               <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, paddingHorizontal: spacing.lg }}>
                 {esperandoNota.map((e, i) => (
                   <PressableScale
@@ -558,7 +596,7 @@ export default function InicioScreen() {
                       <AppIcon name="alert-circle-outline" size={18} color={colors.warningText} />
                     </View>
                     <View style={{ flex: 1, gap: 2 }}>
-                      <AppText weight="600" numberOfLines={1} style={{ fontSize: 15 }}>
+                      <AppText weight="600" numberOfLines={1} style={{ fontSize: 16 }}>
                         {e.titulo}
                       </AppText>
                       <AppText numberOfLines={1} style={{ fontSize: 13, color: colors.textTertiary }}>
@@ -576,9 +614,9 @@ export default function InicioScreen() {
               computeMateriasDelActivo() filtrado a tone danger/warning. */}
           {materiasRiesgo.length > 0 ? (
             <View>
-              <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2, paddingBottom: spacing.sm }}>
-                Materias en riesgo
-              </AppText>
+              <View style={{ paddingBottom: spacing.md }}>
+                <Titulo>Materias en riesgo</Titulo>
+              </View>
               <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, paddingHorizontal: spacing.lg }}>
                 {materiasRiesgo.map((m, i) => (
                   <PressableScale
@@ -606,7 +644,7 @@ export default function InicioScreen() {
                       labelFontSize={10}
                     />
                     <View style={{ flex: 1, gap: 2 }}>
-                      <AppText weight="600" style={{ fontSize: 15 }}>
+                      <AppText weight="600" style={{ fontSize: 16 }}>
                         {m.raw.nombre}
                       </AppText>
                       <AppText style={{ fontSize: 13, color: TONE_COLOR[m.tone] }}>{m.riesgoTxt}</AppText>
@@ -624,10 +662,8 @@ export default function InicioScreen() {
               esperadas + desglose por materia, peor encaminada primero. */}
           {progresoSemestre && progresoSemestre.materias.length > 0 ? (
             <View>
-              <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingBottom: spacing.sm }}>
-                <AppText weight="600" style={{ fontSize: 18, letterSpacing: -0.2 }}>
-                  Progreso del semestre
-                </AppText>
+              <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingBottom: spacing.md }}>
+                <Titulo>Progreso del semestre</Titulo>
                 {progresoSemestre.deltaVsAnterior != null && progresoSemestre.nombreAnterior ? (
                   <AppText
                     mono
@@ -658,8 +694,8 @@ export default function InicioScreen() {
                 <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xl }}>
                   <ProgressRing
                     progress={progresoSemestre.evaluacionesEsperadas > 0 ? progresoSemestre.evaluacionesCalificadas / progresoSemestre.evaluacionesEsperadas : 0}
-                    size={80}
-                    strokeWidth={8}
+                    size={72}
+                    strokeWidth={7}
                     color={colors.accent}
                     centerValue={`${progresoSemestre.evaluacionesCalificadas}/${progresoSemestre.evaluacionesEsperadas}`}
                     centerLabel="notas"
@@ -667,7 +703,7 @@ export default function InicioScreen() {
                     labelFontSize={10}
                   />
                   <View style={{ flex: 1, gap: 3 }}>
-                    <AppText weight="700" style={{ fontSize: 26, letterSpacing: -0.4 }}>
+                    <AppText weight="700" style={{ fontSize: 40, lineHeight: 44, letterSpacing: -1.2 }}>
                       {progresoSemestre.promedio != null ? `${progresoSemestre.promedio}%` : "—"}
                     </AppText>
                     <AppText style={{ fontSize: 13, color: colors.textSecondary }}>promedio del semestre</AppText>
@@ -699,6 +735,17 @@ export default function InicioScreen() {
   );
 }
 
+// Título de sección: los bloques que se leen (Próximos, Esperando nota,
+// Riesgo, Progreso) comparten un título con peso real; los atajos usan
+// uno más bajo a propósito (ver Accesos rápidos).
+function Titulo({ children }: { children: React.ReactNode }) {
+  return (
+    <AppText weight="700" style={{ fontSize: 21, letterSpacing: -0.5, lineHeight: 26 }}>
+      {children}
+    </AppText>
+  );
+}
+
 function KpiCard({
   icon,
   label,
@@ -718,38 +765,31 @@ function KpiCard({
 }) {
   const { colors, tone: toneMap } = useTheme();
   const TONE_COLOR = useMemo(() => makeToneColor(colors), [colors]);
-  // Pressable sólo cuando el caller pasa onPress — todas las KPI de Inicio
-  // ahora navegan a algo (Materias/Agenda/Progreso), así que en la
-  // práctica esto es casi siempre PressableScale; queda opcional para no
-  // atar el componente a que SIEMPRE haya un destino.
   const Container = onPress ? PressableScale : View;
-  // El chip de ícono toma el color del tono en vez de acento fijo siempre
-  // — antes las 4 KPI cards eran visualmente idénticas salvo el número;
-  // ahora "Próxima evaluación"/riesgo se leen naranja/rojo de un vistazo,
-  // igual que el resto de la app (ver TONE_COLOR). "neutral" se queda con
-  // el acento de marca (Cursando es un conteo, no un estado de alerta).
-  const iconBg = tone === "neutral" ? colors.accentSofter : toneMap[tone].soft;
-  const iconFg = tone === "neutral" ? colors.accent : toneMap[tone].text;
+  // El número es lo que se lee primero: grande, en el color del tono cuando
+  // hay algo que decir (naranja/rojo/verde) y en texto plano cuando es un
+  // conteo neutro. Sin chip de ícono: el ícono va suelto junto al rótulo.
+  const valueColor = tone === "neutral" ? colors.text : toneMap[tone].text;
   return (
     <Container
       {...(onPress ? { onPress, scaleTo: 0.97 } : { accessible: true })}
       accessibilityLabel={`${label}: ${valor}, ${sub}`}
-      // flexGrow:0 en vez de 1 — con 3 tarjetas visibles (proximaEvaluacion
-      // oculta) el último ítem de la fila no debe estirarse a lo ancho.
       style={[
-        { flexBasis: "47%", flexGrow: 0, backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm },
+        { flexBasis: "47%", flexGrow: 0, backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.lg, gap: spacing.md },
         style,
       ]}
     >
-      <View style={{ width: 30, height: 30, borderRadius: radii.sm, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" }}>
-        <AppIcon name={icon} size={16} color={iconFg} />
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>
+        <AppText weight="500" numberOfLines={1} style={{ fontSize: 13, color: colors.textSecondary, flexShrink: 1 }}>
+          {label}
+        </AppText>
+        <AppIcon name={icon} size={15} color={tone === "neutral" ? colors.textTertiary : toneMap[tone].text} />
       </View>
       <View style={{ gap: 2 }}>
-        <AppText mono weight="600" style={{ fontSize: 21, letterSpacing: -0.4, lineHeight: 27 }}>
+        <AppText weight="700" numberOfLines={1} style={{ fontSize: 34, letterSpacing: -1, color: valueColor }}>
           {valor}
         </AppText>
-        <AppText style={{ fontSize: 12, color: colors.textFaint }}>{label}</AppText>
-        <AppText style={{ fontSize: 11.5, color: TONE_COLOR[tone] }} numberOfLines={1}>
+        <AppText numberOfLines={1} style={{ fontSize: 12, color: tone === "neutral" ? colors.textTertiary : TONE_COLOR[tone] }}>
           {sub}
         </AppText>
       </View>
