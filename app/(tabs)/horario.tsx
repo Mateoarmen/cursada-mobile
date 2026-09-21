@@ -7,7 +7,7 @@ import type { Materia } from "@/types/database";
 import { materiaColors, radii, spacing, type MateriaColorId } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, PressableScale, Reveal, Spotlight } from "@/components/ui";
-import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
+import { DIAS_BLOQUE, DIAS_LARGOS, horaTexto } from "@/lib/catalog";
 import { getSemestreActivoId } from "@/lib/semestres";
 
 type BloqueDelDia = {
@@ -87,8 +87,12 @@ export default function HorarioScreen() {
           const activeId = await getSemestreActivoId();
           let query = supabase.from("materias").select("*");
           if (activeId) query = query.eq("semestre_id", activeId);
-          const { data } = await query;
+          const { data, error } = await query;
           if (cancelado) return;
+          if (error) {
+            setFetchError(true);
+            return;
+          }
           setFetchError(false);
           setMaterias(data ?? []);
         } catch {
@@ -174,12 +178,12 @@ export default function HorarioScreen() {
       <Spotlight height={280} />
       <View style={{ paddingHorizontal: spacing.xl, gap: spacing.md, paddingBottom: spacing.sm }}>
         <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" }}>
-          <AppText weight="700" style={{ fontSize: 29, letterSpacing: -0.6 }}>
+          <AppText weight="700" style={{ fontSize: 32, letterSpacing: -0.8 }}>
             Horario
           </AppText>
         </View>
 
-        <View style={{ flexDirection: "row", gap: 7 }}>
+        <View style={{ flexDirection: "row", gap: spacing.sm }}>
           {diasVisibles.map((d) => {
             const active = d.dia === diaSeleccionado;
             const carga = cargaPorDia.get(d.dia) ?? 0;
@@ -194,8 +198,8 @@ export default function HorarioScreen() {
                 style={[
                   {
                     flex: 1,
-                    height: 58,
-                    borderRadius: 14,
+                    height: 64,
+                    borderRadius: radii.md,
                     backgroundColor: active ? colors.accent : colors.surfaceSofter,
                     alignItems: "center",
                     justifyContent: "center",
@@ -209,14 +213,13 @@ export default function HorarioScreen() {
                 <AppText
                   weight="600"
                   style={{
-                    fontSize: 10,
-                    textTransform: "uppercase",
+                    fontSize: 12,
                     color: active ? colors.white : colors.textTertiary,
                   }}
                 >
                   {d.label}
                 </AppText>
-                <AppText weight={active ? "700" : "600"} style={{ fontSize: 16, color: active ? colors.white : colors.text }}>
+                <AppText weight={active ? "700" : "600"} style={{ fontSize: 17, color: active ? colors.white : colors.text }}>
                   {d.fecha.getDate()}
                 </AppText>
                 {/* Indicador de carga: una barra que crece con la cantidad
@@ -235,7 +238,16 @@ export default function HorarioScreen() {
             );
           })}
         </View>
-        <AppText style={{ fontSize: 14, color: colors.textSecondary }}>{dataReady ? resumen : "Cargando…"}</AppText>
+        <View style={{ gap: 2, paddingTop: spacing.sm }}>
+          {dataReady ? (
+            <AppText weight="700" style={{ fontSize: 22, letterSpacing: -0.5 }}>
+              {DIAS_LARGOS[diaSeleccionado]} {(DIAS_SEMANA.find((d) => d.dia === diaSeleccionado) ?? DIAS_SEMANA[0]!).fecha.getDate()}
+            </AppText>
+          ) : null}
+          {dataReady || !fetchError ? (
+            <AppText style={{ fontSize: 14, color: colors.textSecondary }}>{dataReady ? resumen : "Cargando…"}</AppText>
+          ) : null}
+        </View>
       </View>
 
       {!dataReady && fetchError ? (
@@ -277,36 +289,41 @@ export default function HorarioScreen() {
                   {hayHueco ? (
                     <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingLeft: 44 + spacing.lg, paddingVertical: spacing.md }}>
                       <View style={{ flex: 1, height: 0, borderTopWidth: 1, borderStyle: "dashed", borderTopColor: colors.borderSoft }} />
-                      <AppText style={{ fontSize: 11, color: colors.textFaint }}>{formatDuracionHueco(gap)}</AppText>
+                      <AppText style={{ fontSize: 12, color: colors.textTertiary }}>{formatDuracionHueco(gap)}</AppText>
                       <View style={{ flex: 1, height: 0, borderTopWidth: 1, borderStyle: "dashed", borderTopColor: colors.borderSoft }} />
                     </View>
                   ) : null}
-                  <View style={{ flexDirection: "row", gap: spacing.lg, paddingTop: i === 0 ? spacing.sm : hayHueco ? 0 : spacing.md + 2 }}>
-                    <AppText mono style={{ width: 44, fontSize: 13, color: colors.textTertiary }}>
-                      {b.horaInicio}
-                    </AppText>
+                  <View
+                    accessible
+                    accessibilityLabel={`${b.materiaNombre}, de ${b.horaInicio} a ${b.horaFin}, ${b.ubicacion}${b.docente ? `, ${b.docente}` : ""}`}
+                    style={{ flexDirection: "row", gap: spacing.lg, paddingTop: i === 0 ? spacing.sm : hayHueco ? 0 : spacing.md }}
+                  >
+                    <View style={{ width: 44, paddingTop: spacing.lg, gap: 2 }}>
+                      <AppText mono style={{ fontSize: 14, color: colors.text }}>
+                        {b.horaInicio}
+                      </AppText>
+                      <AppText mono style={{ fontSize: 12, color: colors.textTertiary }}>
+                        {b.horaFin}
+                      </AppText>
+                    </View>
                     <View
                       style={{
                         flex: 1,
                         backgroundColor: b.accentSoft,
-                        borderLeftWidth: 3,
-                        borderLeftColor: b.accentColor,
-                        borderRadius: 0,
-                        borderTopRightRadius: radii.md,
-                        borderBottomRightRadius: radii.md,
+                        borderRadius: radii.lg,
                         padding: spacing.lg,
-                        gap: 5,
+                        gap: spacing.xs,
                         minHeight: alturaBloque,
                         justifyContent: "center",
                       }}
                     >
-                      <AppText weight="600" style={{ fontSize: 16, letterSpacing: -0.1 }}>
-                        {b.materiaNombre}
-                      </AppText>
-                      <AppText mono style={{ fontSize: 13, color: colors.textSecondary }}>
-                        {b.horaInicio}–{b.horaFin}
-                      </AppText>
-                      <AppText style={{ fontSize: 13, color: colors.textTertiary }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: b.accentColor }} />
+                        <AppText weight="600" numberOfLines={2} style={{ fontSize: 17, letterSpacing: -0.2, flex: 1 }}>
+                          {b.materiaNombre}
+                        </AppText>
+                      </View>
+                      <AppText style={{ fontSize: 13, color: colors.textSecondary }} numberOfLines={2}>
                         {b.ubicacion}
                         {b.docente ? ` · ${b.docente}` : ""}
                       </AppText>
