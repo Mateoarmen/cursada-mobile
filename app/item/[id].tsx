@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
-import { ActivityIndicator, Alert, ScrollView, TextInput, View, type TextInputProps } from "react-native";
+import { Alert, ScrollView, TextInput, View, type TextInputProps } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { materiaColors, radii, spacing } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, BackButton, BottomSheet, MiniCalendario, Pill, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
+import { AppIcon, AppText, BackButton, BottomSheet, CursadaLoader, MiniCalendario, Pill, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
 import { materiaComputadaToRow } from "@/lib/materias";
 import { getSemestreActivoId } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
@@ -275,7 +275,7 @@ export default function ItemDetalleScreen() {
         </View>
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           {!dataReady ? (
-            <ActivityIndicator color={colors.textTertiary} />
+            <CursadaLoader size={44} />
           ) : (
             <AppText style={{ fontSize: 14, color: colors.textTertiary }}>No se encontró el ítem.</AppText>
           )}

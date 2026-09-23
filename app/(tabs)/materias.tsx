@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
-import { ActivityIndicator, FlatList, TextInput, View } from "react-native";
+import { FlatList, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { estadoLabel, estadoTone, materiaColors, radii, spacing, type EstadoMateria } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, CtaGlow, Fab, Pill, PressableScale, PrimaryButton, ProgressRing, Reveal } from "@/components/ui";
+import { AppIcon, AppText, CtaGlow, CursadaLoader, Fab, Pill, PressableScale, PrimaryButton, ProgressRing, Reveal } from "@/components/ui";
 import type { DemoMateria } from "@/data/demoContent";
 import { escalaLabel, formatValor, materiaComputadaToRow, unidad } from "@/lib/materias";
 import { getSemestreActivoId } from "@/lib/semestres";
@@ -346,7 +346,7 @@ export default function MateriasScreen() {
 
       {cargando && rows.length === 0 ? (
         <View style={{ paddingTop: spacing.xxxl * 2, alignItems: "center" }}>
-          <ActivityIndicator color={colors.textTertiary} />
+          <CursadaLoader size={44} />
         </View>
       ) : errorCarga && rows.length === 0 ? (
         <View

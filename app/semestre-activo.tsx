@@ -8,7 +8,7 @@ import { PERIODO_ACTUAL } from "@/lib/catalog";
 import type { Semestre } from "@/types/database";
 import { radii, spacing } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, BackButton, BottomSheet, PickerField, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
+import { AppIcon, AppText, BackButton, BottomSheet, CursadaLoader, PickerField, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
 
 const [PERIODO_ANIO_ACTUAL, PERIODO_MITAD_ACTUAL] = PERIODO_ACTUAL.split("-");
 const ANIO_OPTS = Array.from({ length: 6 }, (_, i) => {
@@ -121,7 +121,11 @@ export default function SemestreActivoScreen() {
       ) : null}
 
       {!dataReady ? (
-        showError ? null : <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando…</AppText>
+        showError ? null : (
+          <View style={{ paddingTop: spacing.xxxl * 2, alignItems: "center" }}>
+            <CursadaLoader size={44} />
+          </View>
+        )
       ) : (
         <Reveal style={{ flex: 1 }}>
           <FlatList

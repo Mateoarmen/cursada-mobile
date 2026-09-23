@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import type { Semestre } from "@/types/database";
 import { radii, spacing } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, BackButton, PressableScale, Reveal, Spotlight } from "@/components/ui";
+import { AppIcon, AppText, BackButton, CursadaLoader, PressableScale, Reveal, Spotlight } from "@/components/ui";
 
 // Semestres propios (no sintéticos, ver obtenerOCrearSemestreHistorico) que
 // ya no están activos — el semestre activo se ve/edita desde
@@ -46,9 +46,13 @@ export default function SemestreHistorialScreen() {
       </View>
 
       {!dataReady ? (
-        <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>
-          {fetchError ? "No pudimos cargar tu historial. Volvé a intentar." : "Cargando…"}
-        </AppText>
+        fetchError ? (
+          <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>No pudimos cargar tu historial. Volvé a intentar.</AppText>
+        ) : (
+          <View style={{ paddingTop: spacing.xxxl * 2, alignItems: "center" }}>
+            <CursadaLoader size={44} />
+          </View>
+        )
       ) : (
         <Reveal style={{ flex: 1 }}>
           <FlatList

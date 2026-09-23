@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import type { Materia, Semestre } from "@/types/database";
 import { estadoLabel, estadoTone, materiaColors, radii, spacing } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppText, BackButton, Reveal, Spotlight } from "@/components/ui";
+import { AppText, BackButton, CursadaLoader, Reveal, Spotlight } from "@/components/ui";
 import { computeMaterias, escalaLabel, formatValor, unidad, type MateriaComputada } from "@/lib/materias";
 
 // Solo lectura a propósito: no navega a /materia/[id] (esa pantalla tiene
@@ -95,7 +95,9 @@ export default function SemestreHistorialDetalleScreen() {
       </View>
 
       {!dataReady ? (
-        <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando…</AppText>
+        <View style={{ paddingTop: spacing.xxxl * 2, alignItems: "center" }}>
+          <CursadaLoader size={44} />
+        </View>
       ) : (
         <Reveal style={{ flex: 1 }}>
           <FlatList

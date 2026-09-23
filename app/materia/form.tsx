@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { spacing } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, BackButton, PressableScale, PrimaryButton, Reveal } from "@/components/ui";
+import { AppIcon, AppText, BackButton, CursadaLoader, PressableScale, PrimaryButton, Reveal } from "@/components/ui";
 import { actualizarMateria, eliminarMateria } from "@/lib/materias";
 import { useMateriaFormState } from "@/hooks/useMateriaFormState";
 import { MateriaBasicosFields } from "@/components/materia/MateriaBasicosFields";
@@ -117,7 +117,7 @@ export default function MateriaFormScreen() {
 
       {cargando ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <AppText style={{ color: colors.textTertiary }}>Cargando…</AppText>
+          <CursadaLoader size={44} />
         </View>
       ) : cargaError ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md, paddingHorizontal: spacing.xl }}>

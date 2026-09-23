@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { materiaColors, radii, spacing, type Tone } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, BottomSheet, Fab, MiniCalendario, Pill, PressableScale, PrimaryButton, Reveal, Segmented, Spotlight } from "@/components/ui";
+import { AppIcon, AppText, BottomSheet, CursadaLoader, Fab, MiniCalendario, Pill, PressableScale, PrimaryButton, Reveal, Segmented, Spotlight } from "@/components/ui";
 import type { DemoAgendaItem } from "@/data/demoContent";
 import { materiaComputadaToRow } from "@/lib/materias";
 import { getSemestreActivoId } from "@/lib/semestres";
@@ -578,7 +578,11 @@ export default function AgendaScreen() {
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 140, gap: spacing.xxl }} showsVerticalScrollIndicator={false}>
         {!dataReady ? (
-          showError ? null : <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando tu agenda…</AppText>
+          showError ? null : (
+            <View style={{ paddingTop: spacing.xxxl * 2, alignItems: "center" }}>
+              <CursadaLoader size={44} label="Cargando tu agenda…" />
+            </View>
+          )
         ) : (
           <Reveal style={{ gap: spacing.xxl }}>
             <AgendaGroup titulo="Vencidas" danger items={vencidas} t={t} ocultarMateriaChip={ocultarMateriaChip} onToggleHecho={toggleHecho} onPressItem={abrirItem} />
