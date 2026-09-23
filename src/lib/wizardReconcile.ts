@@ -5,9 +5,10 @@
 // este paso, las materias recién creadas por el wizard mostrarían nota
 // vacía/sin color en el resto de la app. Se corre después de aplicar_*,
 // antes de cerrar el wizard.
-import { supabase } from "@/lib/supabase";
+import { supabase, usuarioActual } from "@/lib/supabase";
 import { materiaColors, type MateriaColorId } from "@/theme/tokens";
 import { catEsquema, PERIODO_ACTUAL } from "@/lib/catalog";
+import type { Materia } from "@/types/database";
 
 const COLOR_KEYS = (Object.keys(materiaColors) as MateriaColorId[]).filter((k) => k !== "gris");
 
@@ -84,30 +85,39 @@ export async function reconciliarMateriasCreadas(semestreId: string) {
 
 export type MateriaAprobadaSel = { materiaId: string; nombre: string; semestreSugerido: number | null };
 
-// Crea, al confirmar el wizard, una materia "aprobada"/"pendiente" real por
-// cada una tildada en el paso "progreso anterior" — nunca las ya cargadas
-// (yaCargadasIds). Cada semestre_sugerido presente obtiene su propio
-// semestre histórico (ver obtenerOCrearSemestreHistorico).
+// Crea, en /onboarding/progreso-anterior (después del wizard/tour), una
+// materia "aprobada"/"pendiente"/"recursando" real por cada una tildada ahí
+// — nunca las ya cargadas (yaCargadasIds). Cada semestre_sugerido presente
+// obtiene su propio semestre histórico (ver obtenerOCrearSemestreHistorico).
+// "Recursando" es sólo registro de estado — no se inscribe al semestre
+// activo (decisión de producto), mismo criterio de semestre histórico que
+// aprobada/pendiente. Devuelve las filas insertadas (con id real) para que
+// el paso de notas pueda ofrecer cargar valor en sus componentes_fijos —
+// por eso, a diferencia de reconciliarMateriasCreadas, acá SÍ hace falta
+// resolver y guardar los componentesFijos (antes se guardaban vacíos, sin
+// forma de cargar nota después).
 export async function crearMateriasAprobadas(
   aprobadas: MateriaAprobadaSel[],
   pendientes: MateriaAprobadaSel[],
+  recursando: MateriaAprobadaSel[],
   yaCargadasIds: Set<string>,
   obtenerSemestreHistorico: (n: number) => Promise<string>
-) {
+): Promise<Materia[]> {
   const nuevasAprobadas = aprobadas.filter((m) => !yaCargadasIds.has(m.materiaId));
   const nuevasPendientes = pendientes.filter((m) => !yaCargadasIds.has(m.materiaId));
-  const idsNuevos = [...nuevasAprobadas, ...nuevasPendientes];
-  if (!idsNuevos.length) return;
+  const nuevasRecursando = recursando.filter((m) => !yaCargadasIds.has(m.materiaId));
+  const idsNuevos = [...nuevasAprobadas, ...nuevasPendientes, ...nuevasRecursando];
+  if (!idsNuevos.length) return [];
 
-  const { data: userData } = await supabase.auth.getUser();
-  const userId = userData.user?.id;
+  const user = await usuarioActual();
+  const userId = user?.id;
   if (!userId) throw new Error("No hay sesión.");
 
-  const escPorMateria = new Map<string, Esc>();
+  const resueltoPorMateria = new Map<string, { esc: Esc; componentesFijos: ComponenteFijo[] }>();
   await Promise.all(
     idsNuevos.map(async (m) => {
       const r = await resolverEsc(m.materiaId);
-      if (r) escPorMateria.set(m.materiaId, r.esc);
+      if (r) resueltoPorMateria.set(m.materiaId, r);
     })
   );
 
@@ -118,12 +128,14 @@ export async function crearMateriasAprobadas(
   }
 
   const pendientesSet = new Set(nuevasPendientes.map((m) => m.materiaId));
+  const recursandoSet = new Set(nuevasRecursando.map((m) => m.materiaId));
   let colorIdx = 0;
   const filas = idsNuevos.map((m) => {
-    const escResuelto = escPorMateria.get(m.materiaId);
-    const esc: Esc = escResuelto && escResuelto.total > 0 ? escResuelto : { tipo: "puntos", total: 100, aprob: 70, exoneracion: null };
+    const resuelto = resueltoPorMateria.get(m.materiaId);
+    const esc: Esc = resuelto && resuelto.esc.total > 0 ? resuelto.esc : { tipo: "puntos", total: 100, aprob: 70, exoneracion: null };
     const colorId = COLOR_KEYS[colorIdx % COLOR_KEYS.length];
     colorIdx++;
+    const estado = recursandoSet.has(m.materiaId) ? "recursando" : pendientesSet.has(m.materiaId) ? "pendiente" : "aprobada";
     return {
       user_id: userId,
       nombre: m.nombre,
@@ -132,13 +144,14 @@ export async function crearMateriasAprobadas(
       salon: "",
       bloques: [],
       esc,
-      estado: pendientesSet.has(m.materiaId) ? "pendiente" : "aprobada",
+      estado,
       semestre_id: m.semestreSugerido != null ? (semHistoricoPorNumero.get(m.semestreSugerido) ?? null) : null,
       catalogo_materia_id: m.materiaId,
       catalogo_dictado_id: null,
-      componentes_fijos: [],
+      componentes_fijos: resuelto?.componentesFijos ?? [],
     };
   });
-  const { error } = await supabase.from("materias").insert(filas);
+  const { data, error } = await supabase.from("materias").insert(filas).select();
   if (error) throw error;
+  return (data ?? []) as Materia[];
 }

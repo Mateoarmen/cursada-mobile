@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
@@ -7,7 +7,6 @@ import { signInWithGoogle } from "@/lib/googleAuth";
 import { radii, spacing } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
 import { AppText, BrandMark, GoogleButton, PickerField, PressableScale, PrimaryButton } from "@/components/ui";
-import { catCarrerasDe, type CatCarrera } from "@/lib/catalog";
 import {
   aniosNacimiento,
   calcularTelefono,
@@ -17,7 +16,6 @@ import {
   PAISES_TEL,
   traducirErrorAuth,
 } from "@/lib/authErrors";
-import type { University } from "@/types/database";
 
 type Mode = "signin" | "signup";
 type Panel = "form" | "check-email" | "forgot" | "forgot-sent";
@@ -54,7 +52,11 @@ const PAISES_OPTS = PAISES_TEL.map((p) => ({ value: p.iso, label: `${p.bandera} 
 export default function LoginScreen() {
   const { colors } = useTheme();
   const inputStyle = useMemo(() => makeInputStyle(colors), [colors]);
-  const [mode, setMode] = useState<Mode>("signin");
+  // Preseleccionado desde app/intro/index.tsx ("Ya tengo cuenta" / "Comencemos
+  // el viaje" ya saben a qué modo apuntar) — cualquier otro valor cae en
+  // signin, mismo default que si se entra directo a /login sin param.
+  const { mode: modeParam } = useLocalSearchParams<{ mode?: string }>();
+  const [mode, setMode] = useState<Mode>(modeParam === "signup" ? "signup" : "signin");
   const [panel, setPanel] = useState<Panel>("form");
 
   const [email, setEmail] = useState("");
@@ -69,12 +71,6 @@ export default function LoginScreen() {
   const [nacAnio, setNacAnio] = useState("");
   const [telPais, setTelPais] = useState("UY");
   const [telefono, setTelefono] = useState("");
-  const [universidades, setUniversidades] = useState<University[]>([]);
-  const [universidadId, setUniversidadId] = useState("");
-  const [universidadOtra, setUniversidadOtra] = useState("");
-  const [carreras, setCarreras] = useState<CatCarrera[]>([]);
-  const [carrera, setCarrera] = useState("");
-  const [carreraEsOtra, setCarreraEsOtra] = useState(true);
 
   const [checkEmail, setCheckEmail] = useState("");
   const [resendInfo, setResendInfo] = useState<string | null>(null);
@@ -84,46 +80,6 @@ export default function LoginScreen() {
   const [forgotError, setForgotError] = useState<string | null>(null);
   const [forgotBusy, setForgotBusy] = useState(false);
   const [forgotSentEmail, setForgotSentEmail] = useState("");
-
-  useEffect(() => {
-    if (mode !== "signup" || universidades.length) return;
-    supabase
-      .from("universities")
-      .select("*")
-      .order("nombre")
-      .then(({ data }) => setUniversidades((data as University[]) ?? []));
-  }, [mode, universidades.length]);
-
-  useEffect(() => {
-    if (!universidadId || universidadId === "otra") {
-      setCarreras([]);
-      setCarreraEsOtra(true);
-      return;
-    }
-    catCarrerasDe(universidadId)
-      .then((c) => {
-        setCarreras(c);
-        setCarreraEsOtra(c.length === 0);
-        if (c.length && !c.some((x) => x.nombre === carrera)) setCarrera("");
-      })
-      .catch(() => {
-        setCarreras([]);
-        setCarreraEsOtra(true);
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [universidadId]);
-
-  const universidadOpts = useMemo(
-    () => [...universidades.map((u) => ({ value: u.id, label: u.nombre })), { value: "otra", label: "Otra…" }],
-    [universidades]
-  );
-  // value = c.id (único) — c.nombre puede repetirse entre dos planes de la
-  // misma carrera (ver plan_version), así que no sirve como key/value acá.
-  const carreraOpts = useMemo(
-    () => [...carreras.map((c) => ({ value: c.id, label: c.nombre + (c.plan_version ? ` — ${c.plan_version}` : "") })), { value: "__otra__", label: "No está en la lista" }],
-    [carreras]
-  );
-  const carreraIdSeleccionado = carreras.find((c) => c.nombre === carrera)?.id ?? "";
 
   const switchMode = (m: Mode) => {
     setMode(m);
@@ -163,11 +119,8 @@ export default function LoginScreen() {
               nombre: nombre.trim(),
               apellido: apellido.trim(),
               birth_date: birthDate,
-              carrera: carrera.trim(),
               telefono_e164: tel.telefonoE164,
               telefono_pais: tel.telefonoPais,
-              university_id: universidadId && universidadId !== "otra" ? universidadId : null,
-              university_other: universidadId === "otra" ? universidadOtra.trim() : null,
             },
           },
         });
@@ -331,56 +284,6 @@ export default function LoginScreen() {
                         onChangeText={setTelefono}
                       />
                     </View>
-                  </Field>
-
-                  <Field label="Universidad (opcional)">
-                    <PickerField label="Universidad" value={universidadId} placeholder="Elegí tu universidad" options={universidadOpts} onSelect={setUniversidadId} />
-                    {universidadId === "otra" ? (
-                      <TextInput
-                        style={[inputStyle, { height: 48, marginTop: spacing.xs }]}
-                        placeholder="Nombre de tu universidad"
-                        placeholderTextColor={colors.textFaint}
-                        value={universidadOtra}
-                        onChangeText={setUniversidadOtra}
-                      />
-                    ) : null}
-                  </Field>
-
-                  <Field label="Carrera (opcional)">
-                    {!carreraEsOtra && carreras.length ? (
-                      <>
-                        <PickerField
-                          label="Carrera"
-                          value={carreraIdSeleccionado}
-                          placeholder="Elegí tu carrera"
-                          options={carreraOpts}
-                          onSelect={(v) => {
-                            if (v === "__otra__") {
-                              setCarreraEsOtra(true);
-                              setCarrera("");
-                            } else {
-                              const c = carreras.find((x) => x.id === v);
-                              setCarrera(c?.nombre ?? "");
-                            }
-                          }}
-                        />
-                      </>
-                    ) : (
-                      <TextInput
-                        style={[inputStyle, { height: 48 }]}
-                        placeholder="Ej: Lic. en Administración de Empresas"
-                        placeholderTextColor={colors.textFaint}
-                        value={carrera}
-                        onChangeText={setCarrera}
-                      />
-                    )}
-                    {carreraEsOtra && carreras.length ? (
-                      <PressableScale scaleTo={0.98} onPress={() => setCarreraEsOtra(false)}>
-                        <AppText weight="500" style={{ fontSize: 12, color: colors.accentText, marginTop: 4 }}>
-                          Elegir de la lista de {universidadOpts.find((o) => o.value === universidadId)?.label}
-                        </AppText>
-                      </PressableScale>
-                    ) : null}
                   </Field>
                 </View>
               ) : null}

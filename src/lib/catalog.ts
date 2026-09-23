@@ -1,12 +1,12 @@
 // Capa de acceso al catálogo académico real (esquema `catalogo` en
 // Supabase, expuesto vía funciones RPC `cat_*`/`aplicar_*`) — puerto
 // directo de los mismos contratos que usa el wizard de onboarding de la
-// web (ver runtime.js, sección "WIZARD DE ONBOARDING"). Sólo ORT tiene
-// catálogo cargado hoy — mismo alcance que la web (ORT_UNIVERSITY_ID
-// hardcodeado en wizCargarCarreras/wizCargarElectivas).
+// web (ver runtime.js, sección "WIZARD DE ONBOARDING"). El catálogo está
+// cargado por universidad — cat_carreras_de(university_id) devuelve [] si
+// esa universidad todavía no tiene datos, y el wizard usa eso para decidir
+// si mostrarse.
 import { supabase } from "@/lib/supabase";
 
-export const ORT_UNIVERSITY_ID = "29e5e219-2967-4a63-99d7-5edd936d9b70";
 export const PERIODO_ACTUAL = "2026-2";
 
 export const DIAS_BLOQUE = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];

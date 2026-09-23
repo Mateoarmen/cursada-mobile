@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { router } from "expo-router";
-import { ScrollView, View } from "react-native";
+import { ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/hooks/useSession";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
 import { radii, spacing } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, PressableScale, PrimaryButton, Reveal } from "@/components/ui";
+import { AppIcon, AppText, LoadingScreen, PressableScale, PrimaryButton, Reveal } from "@/components/ui";
 import {
   aplicarAgenda,
   aplicarDictados,
@@ -21,7 +21,6 @@ import {
   DIAS_LARGOS,
   formatHorario,
   horaTexto,
-  ORT_UNIVERSITY_ID,
   PERIODO_ACTUAL,
   type Bloque,
   type CatCarrera,
@@ -31,15 +30,26 @@ import {
   type CatGrupo,
   type CatMateriaSugerida,
 } from "@/lib/catalog";
-import { obtenerOCrearSemestreHistorico, obtenerOCrearSemestrePeriodo } from "@/lib/semestres";
-import { crearMateriasAprobadas, reconciliarMateriasCreadas } from "@/lib/wizardReconcile";
+import { obtenerOCrearSemestrePeriodo } from "@/lib/semestres";
+import { reconciliarMateriasCreadas } from "@/lib/wizardReconcile";
+import { PASOS_TOUR, useTourContext } from "@/hooks/TourContext";
+import type { University } from "@/types/database";
 
-const PASOS = ["carrera", "progreso", "semestre", "oferta", "electivas", "revision"] as const;
-type Paso = (typeof PASOS)[number];
+// El flujo completo (con electivas con horario) es para universidades cuyo
+// catálogo trae dictados/horarios, como ORT. Una universidad que sólo
+// cargó plan de estudios (carrera → materias por semestre, sin dictados)
+// — como FCEA/UdelaR — usa el flujo simple: carrera, semestre, materias
+// del semestre, confirmar. El progreso de materias ya aprobadas (y sus
+// notas) se pregunta después, en /onboarding/progreso-anterior — no puede
+// vivir acá porque depende de materias que sólo existen después de
+// confirmar() (y para ORT va después del tour, fuera de este stack).
+const PASOS_COMPLETO = ["universidad", "carrera", "semestre", "oferta", "electivas", "revision"] as const;
+const PASOS_SIMPLE = ["universidad", "carrera", "semestre", "oferta", "revision"] as const;
+type Paso = (typeof PASOS_COMPLETO)[number];
 const SEMESTRES_RANGE = [1, 2, 3, 4, 5, 6, 7, 8];
 const TITULOS: Record<Paso, string> = {
-  carrera: "¿Dónde estudiás?",
-  progreso: "¿Ya aprobaste materias de esta carrera?",
+  universidad: "¿Dónde estudiás?",
+  carrera: "¿Qué carrera cursás?",
   semestre: "¿En qué semestre de la carrera estás?",
   oferta: "Elegí tu oferta",
   electivas: "Electivas",
@@ -48,8 +58,15 @@ const TITULOS: Record<Paso, string> = {
 
 type OfertaSemestre = {
   grupos: CatGrupo[];
-  grupoId: string | null;
-  grupoMaterias: CatDictado[];
+  // Se pueden elegir varios grupos del mismo semestre (ej. un grupo de la
+  // mañana y otro de la noche). Las materias de cada uno se cargan al
+  // abrirlo y quedan cacheadas por id — la ausencia de la clave significa
+  // "todavía cargando".
+  grupoIds: string[];
+  materiasPorGrupo: Record<string, CatDictado[]>;
+  // dictado_ids de los grupos elegidos que el usuario destildó (no las
+  // cursa) — por defecto cada grupo entra completo, y de acá se sacan las que no.
+  grupoExcluidos: string[];
   modo: "grupo" | "manual";
   manualDictados: CatDictado[];
   turnos: string[];
@@ -63,23 +80,47 @@ function toggle<T>(arr: T[], v: T): T[] {
   return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
 }
 
+function grupoElegidas(o: OfertaSemestre): CatDictado[] {
+  const vistos = new Set<string>();
+  return o.grupoIds
+    .flatMap((id) => o.materiasPorGrupo[id] ?? [])
+    .filter((m) => {
+      if (o.grupoExcluidos.includes(m.dictado_id) || vistos.has(m.dictado_id)) return false;
+      vistos.add(m.dictado_id);
+      return true;
+    });
+}
+
 export default function OnboardingWizardScreen() {
   const { colors } = useTheme();
   const { session } = useSession();
   const status = useOnboardingStatusContext();
+  const tour = useTourContext();
   const userId = session?.user?.id;
 
-  const [pasoIdx, setPasoIdx] = useState(0);
+  // Retoma donde se cortó: universidad y carrera se guardan en el perfil al
+  // confirmar cada paso, así que si ya están, se precargan y se arranca en
+  // el primero que falta en vez de volver a preguntarlos.
+  const perfilInicial = status.profile;
+  const [pasoIdx, setPasoIdx] = useState(() => (perfilInicial?.university_id ? (perfilInicial.carrera_id ? 2 : 1) : 0));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [carreras, setCarreras] = useState<CatCarrera[] | null>(null);
-  const [carreraId, setCarreraId] = useState<string | null>(null);
+  // null mientras no se sabe todavía (antes de elegir carrera) — se decide
+  // apenas se confirma la carrera, sondeando si tiene dictados cargados.
+  const [catalogoConHorario, setCatalogoConHorario] = useState<boolean | null>(null);
+  const PASOS: readonly Paso[] = catalogoConHorario === false ? PASOS_SIMPLE : PASOS_COMPLETO;
 
-  const [progresoPorSemestre, setProgresoPorSemestre] = useState<Record<number, CatMateriaSugerida[]>>({});
-  const [progresoCargado, setProgresoCargado] = useState(false);
-  const [progresoSel, setProgresoSel] = useState<Record<string, "aprobada" | "pendiente">>({});
-  const [yaCargadasIds, setYaCargadasIds] = useState<Set<string>>(new Set());
+  const [universidades, setUniversidades] = useState<University[] | null>(null);
+  // Estado local, no leído de status.profile: el perfil recién se actualiza
+  // cuando se confirma este paso (mismo criterio que carreraId más abajo),
+  // así el efecto que carga carreras (más abajo, keyed en universidadId) no
+  // depende de refrescar el contexto a mitad de wizard.
+  const [universidadId, setUniversidadId] = useState<string | null>(perfilInicial?.university_id ?? null);
+  const [universidadOtra, setUniversidadOtra] = useState("");
+
+  const [carreras, setCarreras] = useState<CatCarrera[] | null>(null);
+  const [carreraId, setCarreraId] = useState<string | null>(perfilInicial?.carrera_id ?? null);
 
   const [semestresElegidos, setSemestresElegidos] = useState<number[]>([]);
   const [semestreId, setSemestreId] = useState<string | null>(null);
@@ -99,55 +140,42 @@ export default function OnboardingWizardScreen() {
   const paso = PASOS[pasoIdx];
 
   useEffect(() => {
-    catCarrerasDe(ORT_UNIVERSITY_ID)
-      .then((c) => {
+    supabase
+      .from("universities")
+      .select("*")
+      .order("nombre")
+      .then(({ data }) => setUniversidades((data as University[]) ?? []));
+  }, []);
+
+  useEffect(() => {
+    if (!universidadId || universidadId === "otra") return;
+    catCarrerasDe(universidadId)
+      .then(async (c) => {
         if (!c.length) {
-          router.replace("/(tabs)/materias");
+          // Universidad sin ningún catálogo cargado — antes esta rama era
+          // inalcanzable (sólo se entraba al wizard con catálogo ya
+          // confirmado); ahora que "universidad" es el primer paso del
+          // wizard, puede pasar de verdad. Refrescar acá (recién ahora se
+          // sabe que hace falta) y volver al gate externo: con university_id
+          // ya guardado y el contexto al día, eligibleForWizard da false
+          // solo y cae al onboarding genérico (app/onboarding/index.tsx).
+          await status.refresh();
+          router.replace("/onboarding");
           return;
         }
         setCarreras(c);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "No se pudo cargar el catálogo de carreras."));
+  }, [universidadId]);
+
+  // Al retomar con la carrera ya elegida no se pasa por el "Continuar" de
+  // carrera, que es quien decide flujo completo vs. simple — se sondea acá.
+  useEffect(() => {
+    if (!perfilInicial?.carrera_id) return;
+    catDictados(perfilInicial.carrera_id, PERIODO_ACTUAL)
+      .catch(() => [])
+      .then((d) => setCatalogoConHorario(d.length > 0));
   }, []);
-
-  function motivoYaEnProgreso(materiaId: string): string | null {
-    if (progresoSel[materiaId] === "aprobada" || yaCargadasIds.has(materiaId)) {
-      if (progresoSel[materiaId] === "pendiente") return "Ya la marcaste como pendiente de examen.";
-      return "Ya la marcaste como aprobada.";
-    }
-    if (progresoSel[materiaId] === "pendiente") return "Ya la marcaste como pendiente de examen.";
-    return null;
-  }
-
-  async function cargarProgreso() {
-    if (!carreraId) return;
-    setProgresoCargado(false);
-    try {
-      const resultados = await Promise.all(SEMESTRES_RANGE.map((s) => catMateriasSugeridas(carreraId, s, PERIODO_ACTUAL)));
-      const porSem: Record<number, CatMateriaSugerida[]> = {};
-      SEMESTRES_RANGE.forEach((s, i) => {
-        porSem[s] = resultados[i];
-      });
-      setProgresoPorSemestre(porSem);
-
-      const { data: materias } = await supabase.from("materias").select("catalogo_materia_id, estado").not("catalogo_materia_id", "is", null);
-      const cargadas = new Set<string>();
-      const preSel: Record<string, "aprobada" | "pendiente"> = {};
-      (materias ?? []).forEach((m) => {
-        if (!m.catalogo_materia_id) return;
-        if (m.estado === "aprobada" || m.estado === "pendiente") {
-          cargadas.add(m.catalogo_materia_id);
-          preSel[m.catalogo_materia_id] = m.estado;
-        }
-      });
-      setYaCargadasIds(cargadas);
-      setProgresoSel(preSel);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo cargar el plan de tu carrera.");
-    } finally {
-      setProgresoCargado(true);
-    }
-  }
 
   async function cargarOferta() {
     if (!carreraId) return;
@@ -168,7 +196,7 @@ export default function OnboardingWizardScreen() {
           const sugeridas = dictados.length ? [] : await catMateriasSugeridas(carreraId, s, PERIODO_ACTUAL);
           return [
             s,
-            { grupos, grupoId: null, grupoMaterias: [], modo: grupos.length ? "grupo" : "manual", manualDictados: dictados, turnos, turno: turnoDefault, manualIds: [], sugeridas, sinHorarioIds: [] },
+            { grupos, grupoIds: [], materiasPorGrupo: {}, grupoExcluidos: [], modo: grupos.length ? "grupo" : "manual", manualDictados: dictados, turnos, turno: turnoDefault, manualIds: [], sugeridas, sinHorarioIds: [] },
           ];
         })
       );
@@ -180,24 +208,32 @@ export default function OnboardingWizardScreen() {
     }
   }
 
-  async function seleccionarGrupo(s: number, grupo: CatGrupo | null) {
-    setOfertaPorSemestre((prev) => ({ ...prev, [s]: { ...prev[s], grupoId: grupo?.id ?? null, grupoMaterias: [] } }));
-    if (!grupo || !carreraId) return;
+  async function alternarGrupo(s: number, grupo: CatGrupo) {
+    const yaElegido = ofertaPorSemestre[s]?.grupoIds.includes(grupo.id);
+    setOfertaPorSemestre((prev) => {
+      const o = prev[s];
+      return { ...prev, [s]: { ...o, grupoIds: yaElegido ? o.grupoIds.filter((id) => id !== grupo.id) : [...o.grupoIds, grupo.id] } };
+    });
+    if (yaElegido || !carreraId || ofertaPorSemestre[s]?.materiasPorGrupo[grupo.id]) return;
+    let propios: CatDictado[] = [];
     try {
       const dictados = await catDictados(carreraId, PERIODO_ACTUAL, [s], grupo.turno ?? null);
-      const propios = dictados.filter((d) => d.grupo === grupo.codigo);
-      setOfertaPorSemestre((prev) => ({ ...prev, [s]: { ...prev[s], grupoMaterias: propios } }));
+      propios = dictados.filter((d) => d.grupo === grupo.codigo);
     } catch (e) {
       console.warn("Cursada: no se pudo resolver el detalle de horario del grupo", e);
     }
+    setOfertaPorSemestre((prev) => ({ ...prev, [s]: { ...prev[s], materiasPorGrupo: { ...prev[s].materiasPorGrupo, [grupo.id]: propios } } }));
   }
 
   function inferirTurnoElectivas(): "matutino" | "nocturno" {
     const conteo: Record<string, number> = {};
     Object.values(ofertaPorSemestre).forEach((o) => {
       if (o.modo === "grupo") {
-        const g = o.grupos.find((x) => x.id === o.grupoId);
-        if (g?.turno) conteo[g.turno] = (conteo[g.turno] || 0) + 1;
+        o.grupos
+          .filter((x) => o.grupoIds.includes(x.id))
+          .forEach((g) => {
+            if (g.turno) conteo[g.turno] = (conteo[g.turno] || 0) + 1;
+          });
       } else if (o.turno) {
         conteo[o.turno] = (conteo[o.turno] || 0) + 1;
       }
@@ -207,9 +243,10 @@ export default function OnboardingWizardScreen() {
   }
 
   async function cargarElectivas(turno: "matutino" | "nocturno") {
+    if (!universidadId || universidadId === "otra") return;
     setElectivasCargando(true);
     try {
-      const rows = await catElectivas(ORT_UNIVERSITY_ID, PERIODO_ACTUAL, turno);
+      const rows = await catElectivas(universidadId, PERIODO_ACTUAL, turno);
       setElectivas(rows);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar las electivas.");
@@ -221,7 +258,7 @@ export default function OnboardingWizardScreen() {
   function dictadoIdsElegidosTotal(): string[] {
     const ids: string[] = [];
     Object.values(ofertaPorSemestre).forEach((o) => {
-      if (o.modo === "grupo") ids.push(...o.grupoMaterias.map((m) => m.dictado_id));
+      if (o.modo === "grupo") ids.push(...grupoElegidas(o).map((m) => m.dictado_id));
       else ids.push(...o.manualIds);
     });
     ids.push(...electivaIds);
@@ -247,14 +284,6 @@ export default function OnboardingWizardScreen() {
     }
   }
 
-  function buscarEnProgreso(materiaId: string): CatMateriaSugerida | undefined {
-    for (const arr of Object.values(progresoPorSemestre)) {
-      const found = arr.find((m) => m.materia_id === materiaId);
-      if (found) return found;
-    }
-    return undefined;
-  }
-
   async function confirmar() {
     if (conflictos.length && !aceptarSolapamiento) {
       setError("Tildá que confirmás igual, o volvé atrás y sacá alguna materia en conflicto.");
@@ -274,22 +303,35 @@ export default function OnboardingWizardScreen() {
       await aplicarAgenda(semestreId);
       await reconciliarMateriasCreadas(semestreId);
 
-      const aprobadas = Object.entries(progresoSel)
-        .filter(([, v]) => v === "aprobada")
-        .map(([materiaId]) => {
-          const f = buscarEnProgreso(materiaId);
-          return { materiaId, nombre: f?.nombre ?? "", semestreSugerido: f?.semestre_sugerido ?? null };
-        });
-      const pendientes = Object.entries(progresoSel)
-        .filter(([, v]) => v === "pendiente")
-        .map(([materiaId]) => {
-          const f = buscarEnProgreso(materiaId);
-          return { materiaId, nombre: f?.nombre ?? "", semestreSugerido: f?.semestre_sugerido ?? null };
-        });
-      await crearMateriasAprobadas(aprobadas, pendientes, yaCargadasIds, obtenerOCrearSemestreHistorico);
-
-      await status.refresh();
-      router.replace("/(tabs)");
+      // El resto del onboarding (tour guiado, progreso anterior, notas)
+      // vive fuera de este wizard. progreso-anterior necesita saber qué
+      // semestre(s) se está cursando ahora para no volver a preguntar por
+      // ellos — semestresElegidos es estado local de este wizard, así que
+      // viaja como string (param de navegación / arg de tour.iniciar) en
+      // vez de persistirse en la base.
+      const semestresParam = JSON.stringify(semestresElegidos);
+      if (catalogoConHorario === false) {
+        // Carreras sin horario en catálogo: primero se ofrece cargar el
+        // horario materia por materia (app/onboarding/horario.tsx); sin
+        // tour, el usuario nunca pasó por un catálogo con grupos/dictados.
+        // Navegar ANTES de refrescar: horario/progreso-anterior están
+        // permitidas con o sin materias, así que el gate de _layout.tsx no
+        // tiene nada que hacer; al revés, el status nuevo (ya con materias)
+        // podía llegar con la ruta todavía en /wizard y el gate lo mandaba
+        // un instante a Inicio.
+        router.replace({ pathname: "/onboarding/horario", params: { semestres: semestresParam } });
+        await status.refresh();
+      } else {
+        // Acá sí primero el status: sin materias en el contexto, el gate
+        // rebotaría /(tabs) de vuelta a /onboarding.
+        await status.refresh();
+        // ORT-like: el tour es un overlay global (ver TourProvider en
+        // app/_layout.tsx), no una ruta — corre sobre las tabs reales para
+        // poder resaltarlas. Al terminar/saltar, el propio contexto navega
+        // a /onboarding/progreso-anterior con este mismo semestresParam.
+        tour.iniciar(PASOS_TOUR, semestresParam);
+        router.replace("/(tabs)");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo aplicar la selección — intentá de nuevo.");
     } finally {
@@ -299,7 +341,47 @@ export default function OnboardingWizardScreen() {
 
   const handleContinuar = async () => {
     setError(null);
-    if (paso === "carrera") {
+    const pasoActualIdx = PASOS.indexOf(paso);
+    if (paso === "universidad") {
+      const esOtra = universidadId === "otra";
+      if (!universidadId) {
+        setError("Elegí tu universidad para continuar.");
+        return;
+      }
+      if (esOtra && !universidadOtra.trim()) {
+        setError("Escribí el nombre de tu universidad.");
+        return;
+      }
+      setBusy(true);
+      try {
+        if (!userId) throw new Error("No hay sesión.");
+        const { error: upErr } = await supabase.from("profiles").upsert({
+          id: userId,
+          university_id: esOtra ? null : universidadId,
+          university_other: esOtra ? universidadOtra.trim() : null,
+        });
+        if (upErr) throw upErr;
+        // OJO: no llamar status.refresh() acá si nos quedamos en el wizard
+        // (rama normal, más abajo) — RootLayoutNav devuelve null mientras
+        // status.loading es true, lo que desmonta el wizard entero y pierde
+        // pasoIdx/universidadId (bug real: "no me deja pasar de universidad").
+        // Sólo hace falta refrescar antes de las dos salidas hacia
+        // /onboarding (acá abajo si es "Otra", y en el efecto de arriba si
+        // la universidad no tiene catálogo) — ahí sí conviene, porque de
+        // todos modos el wizard se desmonta al navegar afuera.
+        if (esOtra) await status.refresh();
+      } catch (e) {
+        setBusy(false);
+        setError(e instanceof Error ? e.message : "No se pudo guardar tu universidad — revisá tu conexión e intentá de nuevo.");
+        return;
+      }
+      setBusy(false);
+      if (esOtra) {
+        router.replace("/onboarding");
+        return;
+      }
+      setPasoIdx(pasoActualIdx + 1);
+    } else if (paso === "carrera") {
       if (!carreraId) {
         setError("Elegí tu carrera para continuar.");
         return;
@@ -309,16 +391,15 @@ export default function OnboardingWizardScreen() {
         if (!userId) throw new Error("No hay sesión.");
         const { error: upErr } = await supabase.from("profiles").upsert({ id: userId, carrera_id: carreraId });
         if (upErr) throw upErr;
+        const dictadosProbe = await catDictados(carreraId, PERIODO_ACTUAL).catch(() => []);
+        setCatalogoConHorario(dictadosProbe.length > 0);
       } catch (e) {
         setBusy(false);
         setError(e instanceof Error ? e.message : "No se pudo guardar tu carrera — revisá tu conexión e intentá de nuevo.");
         return;
       }
       setBusy(false);
-      setPasoIdx(1);
-      await cargarProgreso();
-    } else if (paso === "progreso") {
-      setPasoIdx(2);
+      setPasoIdx(pasoActualIdx + 1);
     } else if (paso === "semestre") {
       if (!semestresElegidos.length) {
         setError("Elegí al menos un semestre.");
@@ -334,15 +415,20 @@ export default function OnboardingWizardScreen() {
         return;
       }
       setBusy(false);
-      setPasoIdx(3);
+      setPasoIdx(pasoActualIdx + 1);
       await cargarOferta();
     } else if (paso === "oferta") {
-      const turnoDefault = inferirTurnoElectivas();
-      setElectivaTurno(turnoDefault);
-      setPasoIdx(4);
-      await cargarElectivas(turnoDefault);
+      const siguiente = PASOS[pasoActualIdx + 1];
+      setPasoIdx(pasoActualIdx + 1);
+      if (siguiente === "electivas") {
+        const turnoDefault = inferirTurnoElectivas();
+        setElectivaTurno(turnoDefault);
+        await cargarElectivas(turnoDefault);
+      } else {
+        await cargarRevision();
+      }
     } else if (paso === "electivas") {
-      setPasoIdx(5);
+      setPasoIdx(pasoActualIdx + 1);
       await cargarRevision();
     } else if (paso === "revision") {
       await confirmar();
@@ -355,13 +441,19 @@ export default function OnboardingWizardScreen() {
   };
 
   const salirAManual = () => {
+    // Sin esto, eligibleForWizard seguía en true (nunca se llegó a elegir
+    // carrera_id): apenas se tocaba una tab que no fuera Materias,
+    // needsOnboarding mandaba de vuelta a /onboarding, que reenviaba
+    // derecho al wizard de nuevo — el "Prefiero cargarlo a mano" no
+    // sacaba de verdad del wizard (loop reportado).
+    status.marcarModoManual();
     router.replace("/(tabs)/materias");
   };
 
   const items = useMemo(() => {
     const out: { id: string; nombre: string; salon: string | null; bloques: Bloque[] }[] = [];
     Object.values(ofertaPorSemestre).forEach((o) => {
-      if (o.modo === "grupo") o.grupoMaterias.forEach((m) => out.push({ id: m.dictado_id, nombre: m.nombre, salon: m.salon, bloques: m.bloques }));
+      if (o.modo === "grupo") grupoElegidas(o).forEach((m) => out.push({ id: m.dictado_id, nombre: m.nombre, salon: m.salon, bloques: m.bloques }));
       else o.manualDictados.filter((d) => o.manualIds.includes(d.dictado_id)).forEach((d) => out.push({ id: d.dictado_id, nombre: d.nombre, salon: d.salon, bloques: d.bloques }));
     });
     electivas.filter((e) => electivaIds.includes(e.dictado_id)).forEach((e) => out.push({ id: e.dictado_id, nombre: e.nombre, salon: null, bloques: e.bloques }));
@@ -399,6 +491,66 @@ export default function OnboardingWizardScreen() {
           {TITULOS[paso]}
         </AppText>
 
+        {paso === "universidad" ? (
+          <View style={{ gap: spacing.sm }}>
+            {!universidades ? (
+              <AppText style={{ fontSize: 14, color: colors.textTertiary }}>Cargando universidades…</AppText>
+            ) : (
+              <>
+                {universidades.map((u) => (
+                  <PressableScale
+                    key={u.id}
+                    scaleTo={0.98}
+                    onPress={() => setUniversidadId(u.id)}
+                    style={{
+                      padding: spacing.lg,
+                      borderRadius: radii.md,
+                      backgroundColor: universidadId === u.id ? colors.accentSoft : colors.surface,
+                      borderWidth: universidadId === u.id ? 1.5 : 0,
+                      borderColor: colors.accent,
+                    }}
+                  >
+                    <AppText weight="600" style={{ fontSize: 15 }}>
+                      {u.nombre}
+                    </AppText>
+                  </PressableScale>
+                ))}
+                <PressableScale
+                  scaleTo={0.98}
+                  onPress={() => setUniversidadId("otra")}
+                  style={{
+                    padding: spacing.lg,
+                    borderRadius: radii.md,
+                    backgroundColor: universidadId === "otra" ? colors.accentSoft : colors.surface,
+                    borderWidth: universidadId === "otra" ? 1.5 : 0,
+                    borderColor: colors.accent,
+                  }}
+                >
+                  <AppText weight="600" style={{ fontSize: 15 }}>
+                    Otra…
+                  </AppText>
+                </PressableScale>
+                {universidadId === "otra" ? (
+                  <TextInput
+                    style={{
+                      height: 50,
+                      borderRadius: radii.sm,
+                      backgroundColor: colors.surface,
+                      paddingHorizontal: spacing.lg,
+                      fontSize: 15,
+                      color: colors.text,
+                    }}
+                    placeholder="Nombre de tu universidad"
+                    placeholderTextColor={colors.textFaint}
+                    value={universidadOtra}
+                    onChangeText={setUniversidadOtra}
+                  />
+                ) : null}
+              </>
+            )}
+          </View>
+        ) : null}
+
         {paso === "carrera" ? (
           <View style={{ gap: spacing.sm }}>
             {!carreras ? (
@@ -433,97 +585,6 @@ export default function OnboardingWizardScreen() {
                   ) : null}
                 </PressableScale>
               ))
-            )}
-          </View>
-        ) : null}
-
-        {paso === "progreso" ? (
-          <View style={{ gap: spacing.lg }}>
-            <AppText style={{ fontSize: 13, color: colors.textTertiary }}>
-              Opcional — tildá las que ya diste, así tu progreso hacia el título arranca correcto.
-            </AppText>
-            {!progresoCargado ? (
-              <AppText style={{ fontSize: 14, color: colors.textTertiary }}>Cargando el plan de tu carrera…</AppText>
-            ) : (
-              SEMESTRES_RANGE.map((s) => {
-                const materias = progresoPorSemestre[s] ?? [];
-                if (!materias.length) return null;
-                return (
-                  <View key={s} style={{ gap: spacing.sm }}>
-                    <AppText weight="700" style={{ fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase", color: colors.textFaint }}>
-                      Semestre {s}
-                    </AppText>
-                    {materias.map((m) => {
-                      const yaCargada = yaCargadasIds.has(m.materia_id);
-                      const sel = progresoSel[m.materia_id];
-                      return (
-                        <View key={m.materia_id} style={{ backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm }}>
-                          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                            <AppText weight="500" style={{ fontSize: 14, flex: 1 }} numberOfLines={1}>
-                              {m.nombre}
-                            </AppText>
-                            {yaCargada ? (
-                              <AppText mono style={{ fontSize: 11, color: colors.textFaint }}>
-                                Ya cargada
-                              </AppText>
-                            ) : null}
-                          </View>
-                          {!yaCargada ? (
-                            <View style={{ flexDirection: "row", gap: spacing.sm }}>
-                              <PressableScale
-                                scaleTo={0.97}
-                                onPress={() =>
-                                  setProgresoSel((prev) => {
-                                    const next = { ...prev };
-                                    if (next[m.materia_id] === "aprobada") delete next[m.materia_id];
-                                    else next[m.materia_id] = "aprobada";
-                                    return next;
-                                  })
-                                }
-                                style={{
-                                  flex: 1,
-                                  height: 34,
-                                  borderRadius: radii.sm,
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  backgroundColor: sel === "aprobada" ? colors.successSoft : colors.surfaceSoft,
-                                }}
-                              >
-                                <AppText weight="600" style={{ fontSize: 12, color: sel === "aprobada" ? colors.successText : colors.textSecondary }}>
-                                  Aprobada
-                                </AppText>
-                              </PressableScale>
-                              <PressableScale
-                                scaleTo={0.97}
-                                onPress={() =>
-                                  setProgresoSel((prev) => {
-                                    const next = { ...prev };
-                                    if (next[m.materia_id] === "pendiente") delete next[m.materia_id];
-                                    else next[m.materia_id] = "pendiente";
-                                    return next;
-                                  })
-                                }
-                                style={{
-                                  flex: 1,
-                                  height: 34,
-                                  borderRadius: radii.sm,
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  backgroundColor: sel === "pendiente" ? colors.warningSoft : colors.surfaceSoft,
-                                }}
-                              >
-                                <AppText weight="600" style={{ fontSize: 12, color: sel === "pendiente" ? colors.warningText : colors.textSecondary }}>
-                                  Debo rendir examen
-                                </AppText>
-                              </PressableScale>
-                            </View>
-                          ) : null}
-                        </View>
-                      );
-                    })}
-                  </View>
-                );
-              })
             )}
           </View>
         ) : null}
@@ -576,45 +637,85 @@ export default function OnboardingWizardScreen() {
 
                       {o.modo === "grupo" ? (
                         <>
-                          {o.grupos.map((g) => (
-                            <PressableScale
-                              key={g.id}
-                              scaleTo={0.98}
-                              onPress={() => seleccionarGrupo(s, o.grupoId === g.id ? null : g)}
-                              style={{
-                                padding: spacing.md,
-                                borderRadius: radii.md,
-                                backgroundColor: o.grupoId === g.id ? colors.accentSoft : colors.surface,
-                                borderWidth: o.grupoId === g.id ? 1.5 : 0,
-                                borderColor: colors.accent,
-                              }}
-                            >
-                              <AppText weight="600" style={{ fontSize: 14 }}>
-                                {g.codigo}
-                              </AppText>
-                              <AppText style={{ fontSize: 12, color: colors.textTertiary }}>
-                                {[g.turno, g.edificio, `${g.materias} ${g.materias === 1 ? "materia" : "materias"}`].filter(Boolean).join(" · ")}
-                              </AppText>
-                            </PressableScale>
-                          ))}
-                          {o.grupoMaterias.length ? (
-                            <View style={{ gap: 6, paddingLeft: spacing.md, borderLeftWidth: 2, borderLeftColor: colors.borderFaint }}>
-                              {o.grupoMaterias.map((m) => (
-                                <View key={m.dictado_id} style={{ gap: 1 }}>
-                                  <AppText weight="500" style={{ fontSize: 13 }}>
-                                    {m.nombre}
-                                  </AppText>
-                                  <AppText style={{ fontSize: 11, color: colors.textFaint }}>{[m.salon, formatHorario(m.bloques)].filter(Boolean).join(" · ")}</AppText>
-                                </View>
-                              ))}
-                            </View>
-                          ) : null}
+                          {o.grupos.map((g) => {
+                            const abierto = o.grupoIds.includes(g.id);
+                            const materiasGrupo = o.materiasPorGrupo[g.id];
+                            const cargando = abierto && !materiasGrupo;
+                            const elegidas = materiasGrupo ? materiasGrupo.filter((m) => !o.grupoExcluidos.includes(m.dictado_id)).length : 0;
+                            const meta = [g.turno, g.edificio, `${g.materias} ${g.materias === 1 ? "materia" : "materias"}`].filter(Boolean).join(" · ");
+                            return (
+                              <View
+                                key={g.id}
+                                style={{
+                                  borderRadius: radii.md,
+                                  backgroundColor: abierto ? colors.accentSoft : colors.surface,
+                                  borderWidth: abierto ? 1.5 : 0,
+                                  borderColor: colors.accent,
+                                  overflow: "hidden",
+                                }}
+                              >
+                                <PressableScale
+                                  scaleTo={0.98}
+                                  onPress={() => alternarGrupo(s, g)}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ expanded: abierto }}
+                                  style={{ padding: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.sm }}
+                                >
+                                  <View style={{ flex: 1, gap: 1 }}>
+                                    <AppText weight="600" style={{ fontSize: 14 }}>
+                                      {g.codigo}
+                                    </AppText>
+                                    <AppText style={{ fontSize: 12, color: colors.textTertiary }}>
+                                      {abierto && materiasGrupo?.length ? `${meta} · cursás ${elegidas} de ${materiasGrupo.length}` : meta}
+                                    </AppText>
+                                  </View>
+                                  <AppIcon name={abierto ? "chevron-up" : "chevron-down"} size={16} color={colors.textTertiary} />
+                                </PressableScale>
+                                {abierto ? (
+                                  <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.sm }}>
+                                    {cargando ? (
+                                      <AppText style={{ fontSize: 12, color: colors.textFaint, paddingVertical: spacing.sm }}>Cargando materias…</AppText>
+                                    ) : !materiasGrupo?.length ? (
+                                      <AppText style={{ fontSize: 12, color: colors.textFaint, paddingVertical: spacing.sm }}>Este grupo no tiene materias con horario cargado.</AppText>
+                                    ) : (
+                                      <>
+                                        <AppText style={{ fontSize: 12, color: colors.textTertiary, paddingBottom: 2 }}>Destildá las que no estés cursando.</AppText>
+                                        {materiasGrupo.map((m) => {
+                                          const on = !o.grupoExcluidos.includes(m.dictado_id);
+                                          return (
+                                            <PressableScale
+                                              key={m.dictado_id}
+                                              scaleTo={0.98}
+                                              onPress={() =>
+                                                setOfertaPorSemestre((prev) => ({ ...prev, [s]: { ...prev[s], grupoExcluidos: toggle(prev[s].grupoExcluidos, m.dictado_id) } }))
+                                              }
+                                              accessibilityRole="checkbox"
+                                              accessibilityState={{ checked: on }}
+                                              style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.sm }}
+                                            >
+                                              <AppIcon name={on ? "checkbox" : "square-outline"} size={20} color={on ? colors.accent : colors.textFaint} />
+                                              <View style={{ flex: 1, gap: 1, opacity: on ? 1 : 0.5 }}>
+                                                <AppText weight="500" style={{ fontSize: 13 }}>
+                                                  {m.nombre}
+                                                </AppText>
+                                                <AppText style={{ fontSize: 11, color: colors.textFaint }}>{[m.salon, formatHorario(m.bloques)].filter(Boolean).join(" · ")}</AppText>
+                                              </View>
+                                            </PressableScale>
+                                          );
+                                        })}
+                                      </>
+                                    )}
+                                  </View>
+                                ) : null}
+                              </View>
+                            );
+                          })}
                           <PressableScale
                             scaleTo={0.98}
                             onPress={() => setOfertaPorSemestre((prev) => ({ ...prev, [s]: { ...prev[s], modo: "manual" } }))}
                           >
                             <AppText weight="500" style={{ fontSize: 12, color: colors.accentText }}>
-                              Prefiero elegir materias sueltas para este semestre
+                              Ninguno me sirve, elegir materias sueltas
                             </AppText>
                           </PressableScale>
                         </>
@@ -647,13 +748,11 @@ export default function OnboardingWizardScreen() {
                             o.manualDictados
                               .filter((d) => !o.turno || !d.turno || d.turno === o.turno)
                               .map((d) => {
-                                const motivo = motivoYaEnProgreso(d.materia_id);
                                 const on = o.manualIds.includes(d.dictado_id);
                                 return (
                                   <PressableScale
                                     key={d.dictado_id}
                                     scaleTo={0.98}
-                                    disabled={!!motivo}
                                     onPress={() => setOfertaPorSemestre((prev) => ({ ...prev, [s]: { ...prev[s], manualIds: toggle(prev[s].manualIds, d.dictado_id) } }))}
                                     style={{
                                       padding: spacing.md,
@@ -661,7 +760,6 @@ export default function OnboardingWizardScreen() {
                                       backgroundColor: on ? colors.accentSoft : colors.surface,
                                       borderWidth: on ? 1.5 : 0,
                                       borderColor: colors.accent,
-                                      opacity: motivo ? 0.5 : 1,
                                       gap: 2,
                                     }}
                                   >
@@ -671,9 +769,6 @@ export default function OnboardingWizardScreen() {
                                     <AppText style={{ fontSize: 11, color: colors.textFaint }}>
                                       {[d.grupo, d.turno, d.salon, formatHorario(d.bloques)].filter(Boolean).join(" · ")}
                                     </AppText>
-                                    {motivo ? (
-                                      <AppText style={{ fontSize: 11, color: colors.warningText }}>{motivo}</AppText>
-                                    ) : null}
                                   </PressableScale>
                                 );
                               })
@@ -683,13 +778,11 @@ export default function OnboardingWizardScreen() {
                                 Sin horario cargado en el catálogo todavía — elegí las materias y completá el horario vos después.
                               </AppText>
                               {o.sugeridas.map((m) => {
-                                const motivo = motivoYaEnProgreso(m.materia_id);
                                 const on = o.sinHorarioIds.includes(m.materia_id);
                                 return (
                                   <PressableScale
                                     key={m.materia_id}
                                     scaleTo={0.98}
-                                    disabled={!!motivo}
                                     onPress={() =>
                                       setOfertaPorSemestre((prev) => ({ ...prev, [s]: { ...prev[s], sinHorarioIds: toggle(prev[s].sinHorarioIds, m.materia_id) } }))
                                     }
@@ -699,7 +792,6 @@ export default function OnboardingWizardScreen() {
                                       backgroundColor: on ? colors.accentSoft : colors.surface,
                                       borderWidth: on ? 1.5 : 0,
                                       borderColor: colors.accent,
-                                      opacity: motivo ? 0.5 : 1,
                                       gap: 2,
                                     }}
                                   >
@@ -709,7 +801,6 @@ export default function OnboardingWizardScreen() {
                                     <AppText style={{ fontSize: 11, color: colors.textFaint }}>
                                       {(m.creditos ? `${m.creditos} créditos` : "") + (m.obligatoria === false ? " · electiva de plan" : "")}
                                     </AppText>
-                                    {motivo ? <AppText style={{ fontSize: 11, color: colors.warningText }}>{motivo}</AppText> : null}
                                   </PressableScale>
                                 );
                               })}
@@ -764,7 +855,7 @@ export default function OnboardingWizardScreen() {
               <AppText style={{ fontSize: 13, color: colors.textTertiary }}>No hay electivas para este turno todavía — podés continuar sin elegir ninguna.</AppText>
             ) : (
               electivas.map((e) => {
-                const motivo = e.estado === "sin_minimo" ? "No se abrió por falta de inscriptos." : motivoYaEnProgreso(e.materia_id);
+                const motivo = e.estado === "sin_minimo" ? "No se abrió por falta de inscriptos." : null;
                 const on = electivaIds.includes(e.dictado_id);
                 const repetida = electivas.filter((x) => x.materia_id === e.materia_id).length > 1;
                 return (
@@ -882,6 +973,10 @@ export default function OnboardingWizardScreen() {
         {pasoIdx > 0 ? <PrimaryButton label="Atrás" variant="ghost" onPress={handleAtras} /> : null}
         <PrimaryButton label={paso === "revision" ? "Confirmar" : "Continuar"} flex onPress={handleContinuar} disabled={busy} />
       </View>
+
+      {/* Confirmar crea materias, agenda y reconcilia en varias llamadas:
+          loader de marca en vez de un botón deshabilitado sin feedback. */}
+      {busy && paso === "revision" ? <LoadingScreen overlay label="Armando tu semestre…" /> : null}
     </SafeAreaView>
   );
 }

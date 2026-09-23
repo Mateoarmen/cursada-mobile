@@ -12,7 +12,10 @@ export default function OnboardingLayout() {
       }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="perfil" />
       <Stack.Screen name="wizard" />
+      <Stack.Screen name="horario" />
+      <Stack.Screen name="progreso-anterior" />
     </Stack>
   );
 }

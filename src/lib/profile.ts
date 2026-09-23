@@ -31,9 +31,13 @@ export async function uploadAvatar(userId: string, localUri: string): Promise<st
   return fotoUrl;
 }
 
-export type ProfilePatch = Pick<
-  Profile,
-  "nombre" | "apellido" | "birth_date" | "carrera" | "telefono_e164" | "telefono_pais" | "university_id" | "university_other"
+// Partial: app/perfil.tsx (edición completa desde Perfil) sigue mandando
+// todos los campos, pero app/onboarding/perfil.tsx (alta inicial de cuentas
+// Google) ya no pide universidad/carrera ahí — eso se pregunta como primer
+// paso del wizard (ver app/onboarding/wizard.tsx) — así que sólo manda
+// nombre/apellido/nacimiento/teléfono.
+export type ProfilePatch = Partial<
+  Pick<Profile, "nombre" | "apellido" | "birth_date" | "carrera" | "telefono_e164" | "telefono_pais" | "university_id" | "university_other">
 >;
 
 export async function saveProfile(userId: string, patch: ProfilePatch): Promise<void> {

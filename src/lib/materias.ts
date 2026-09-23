@@ -530,6 +530,38 @@ export async function guardarComponentesFijos(
   return data as Materia;
 }
 
+// Nota final de una materia ya aprobada (paso "Cargá tus notas" de
+// app/onboarding/progreso-anterior.tsx): una sola nota, sin desglose por
+// control/parcial. En escala "nota" (0–total, ej. 0–12) se respeta esc; en
+// "puntos"/"pct" (ORT) es siempre 0–100, reescalando esc si el total del
+// catálogo no era 100 para que la nota acumulada y el total coincidan.
+export function escalaNotaFinal(esc: Materia["esc"]): { max: number; esc: EscalaMateria } {
+  const e = escalaDe({ esc });
+  if (e.tipo === "nota") return { max: e.total, esc: e };
+  if (e.total === 100) return { max: 100, esc: e };
+  const k = e.total > 0 ? 100 / e.total : 1;
+  return { max: 100, esc: { tipo: e.tipo, total: 100, aprob: Math.round(e.aprob * k), exoneracion: e.exoneracion != null ? Math.round(e.exoneracion * k) : null } };
+}
+
+export async function guardarNotaFinal(materia: Materia, valor: number): Promise<Materia> {
+  const { max, esc } = escalaNotaFinal(materia.esc);
+  const componentes = [{ id: "nota-final", titulo: "Nota final", puntajeMax: max, valor: Math.max(0, Math.min(max, valor)) }];
+  const { data, error } = await supabase.from("materias").update({ componentes_fijos: componentes, esc }).eq("id", materia.id).select().single();
+  if (error || !data) throw error ?? new Error("No se pudo guardar la nota.");
+  return data as Materia;
+}
+
+// Reemplaza el horario completo de una materia — necesario para el paso
+// post-onboarding de "cargar horario ahora" (app/onboarding/horario.tsx):
+// las materias creadas por aplicar_plan() para carreras sin dictado en
+// catálogo quedan con bloques:[], y no había forma de actualizar sólo ese
+// campo sobre una materia ya creada por RPC.
+export async function guardarBloques(id: string, bloques: MateriaBloqueInput[]): Promise<Materia> {
+  const { data, error } = await supabase.from("materias").update({ bloques }).eq("id", id).select().single();
+  if (error || !data) throw error ?? new Error("No se pudo guardar el horario.");
+  return data as Materia;
+}
+
 export function escalaLabel(tipo: EscalaTipo, total: number): string {
   if (tipo === "nota") return "Nota 0–12";
   if (tipo === "pct") return "Porcentaje";
