@@ -67,6 +67,40 @@ function inicioNominal(periodo: string | null | undefined): Date | null {
 const minFecha = (fechas: Date[]) => fechas.reduce((a, b) => (b < a ? b : a));
 const maxFecha = (fechas: Date[]) => fechas.reduce((a, b) => (b > a ? b : a));
 
+export type SegmentoMes = {
+  mesIdx: number; // 0-11
+  anio: number;
+  // Índices 0-based dentro de `semanas`, inclusive.
+  desde: number;
+  hasta: number;
+};
+
+// Agrupa semanas consecutivas por su mes "dominante": el del jueves de esa
+// semana (lun–dom), mismo criterio que usa la semana ISO para asignar mes/año
+// cuando la semana cruza un límite de mes — la mayoría de sus 7 días caen ahí.
+// Sirve para dibujar un eje de meses en vez de números de semana (una semana
+// sola no dice mucho; el mes sí da noción de "qué tan lejos" está algo).
+export function segmentosPorMes(semanas: Pick<SemanaCarga, "inicio">[]): SegmentoMes[] {
+  const out: SegmentoMes[] = [];
+  semanas.forEach((s, i) => {
+    const jueves = addDias(s.inicio, 3);
+    const mesIdx = jueves.getMonth();
+    const anio = jueves.getFullYear();
+    const last = out[out.length - 1];
+    if (last && last.mesIdx === mesIdx && last.anio === anio) {
+      last.hasta = i;
+    } else {
+      out.push({ mesIdx, anio, desde: i, hasta: i });
+    }
+  });
+  return out;
+}
+
+export function mesCortoLabel(mesIdx: number): string {
+  const m = MESES_CORTOS[mesIdx]!;
+  return m.charAt(0).toUpperCase() + m.slice(1);
+}
+
 export function formatRangoSemana(inicio: Date, fin: Date): string {
   const mes = (d: Date) => MESES_CORTOS[d.getMonth()]!;
   return inicio.getMonth() === fin.getMonth()

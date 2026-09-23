@@ -5,7 +5,7 @@ import { materiaColors, motionDuration, radii, spacing } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, PressableScale } from "@/components/ui";
 import { DIAS_CORTOS, formatCountdown, parseISODate } from "@/lib/agenda";
-import { formatRangoSemana, type CargaSemestre, type EvaluacionCarga, type SemanaCarga } from "@/lib/cargaSemestre";
+import { formatRangoSemana, mesCortoLabel, segmentosPorMes, type CargaSemestre, type EvaluacionCarga, type SemanaCarga } from "@/lib/cargaSemestre";
 
 // Widget "Curva de carga" (diseño 1B, claude.ai/design → Cursada Widget Carga).
 // Colapsado (diseño M): curva chica + próxima evaluación. Expandido (diseño L):
@@ -275,9 +275,13 @@ function CurvaChart({ carga, counts, sel, height, interactive = false, onSelect 
   const linea = pts.map((p) => `${p.x},${p.y}`).join(" ");
   const area = pts.length ? `M${pts[0]!.x},${yBase} ${pts.map((p) => `L${p.x},${p.y}`).join(" ")} L${pts[pts.length - 1]!.x},${yBase} Z` : "";
 
-  // Con más de 16 semanas se saltea una etiqueta por medio para que no se pisen.
-  const paso = n > 16 ? 2 : 1;
-  const ANCHO_PILDORA = 18;
+  // Eje de meses (sólo expandido): agrupar semanas por mes da noción de "qué
+  // tan lejos" está algo, algo que "semana 11" no transmite de un vistazo.
+  // Los divisores en el SVG hacen de regla — al arrastrar, ver la selección
+  // cerca de un borde o del medio de un tramo dice si cae a principio, mitad
+  // o fin de ese mes.
+  const segmentos = useMemo(() => (interactive ? segmentosPorMes(carga.semanas) : []), [interactive, carga.semanas]);
+  const anioBase = carga.semanas[0]?.inicio.getFullYear();
 
   const a11yText = `Semana ${sel + 1}, ${plural(counts[sel] ?? 0, "evaluación", "evaluaciones")}`;
   const mover = (d: number) => {
@@ -309,6 +313,10 @@ function CurvaChart({ carga, counts, sel, height, interactive = false, onSelect 
             {[PAD_TOP, (PAD_TOP + yBase) / 2, yBase].map((y, i) => (
               <Line key={i} x1={0} x2={width} y1={y} y2={y} stroke={i === 2 ? colors.border : colors.borderFaint} strokeWidth={1} />
             ))}
+            {segmentos.slice(0, -1).map((seg) => {
+              const x = (seg.hasta + 1) * colW;
+              return <Line key={`lim-${x}`} x1={x} x2={x} y1={PAD_TOP} y2={yBase} stroke={colors.borderFaint} strokeWidth={1} />;
+            })}
             <Path d={area} fill={conAlpha(accent, 0.14)} />
             <Polyline points={linea} fill="none" stroke={accent} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
             {picoPt ? <Circle cx={picoPt.x} cy={picoPt.y} r={4} fill={accent} /> : null}
@@ -327,32 +335,22 @@ function CurvaChart({ carga, counts, sel, height, interactive = false, onSelect 
       </View>
 
       {interactive ? (
-        <View style={{ flexDirection: "row", marginTop: spacing.sm, minHeight: 20, pointerEvents: "none" }}>
-          {carga.semanas.map((s, i) => {
-            const esHoy = i === hoy;
-            const mostrar = esHoy || i === sel || s.n === 1 || s.n % paso === 0;
+        <View style={{ marginTop: spacing.sm, height: 16, pointerEvents: "none" }}>
+          {segmentos.map((seg) => {
+            const x0 = seg.desde * colW;
+            const w = (seg.hasta - seg.desde + 1) * colW;
+            const contieneHoy = hoy != null && hoy >= seg.desde && hoy <= seg.hasta;
+            const contieneSel = sel >= seg.desde && sel <= seg.hasta;
+            const label = mesCortoLabel(seg.mesIdx) + (seg.anio !== anioBase ? ` '${String(seg.anio).slice(2)}` : "");
             return (
-              <View key={s.n} style={{ width: colW || undefined, flex: colW ? undefined : 1, alignItems: "center" }}>
-                {mostrar ? (
-                  <View
-                    style={{
-                      minWidth: ANCHO_PILDORA,
-                      height: 20,
-                      borderRadius: 10,
-                      paddingHorizontal: 2,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: esHoy ? accent : "transparent",
-                    }}
-                  >
-                    <AppText
-                      weight={esHoy || i === sel ? "700" : "600"}
-                      style={{ fontSize: 11, color: esHoy ? colors.white : i === sel ? colors.text : colors.textTertiary }}
-                    >
-                      {s.n}
-                    </AppText>
-                  </View>
-                ) : null}
+              <View key={`${seg.anio}-${seg.mesIdx}`} style={{ position: "absolute", left: x0, width: w, alignItems: "center" }}>
+                <AppText
+                  weight={contieneHoy || contieneSel ? "700" : "500"}
+                  numberOfLines={1}
+                  style={{ fontSize: 11, letterSpacing: 0.3, color: contieneHoy ? accent : contieneSel ? colors.text : colors.textTertiary }}
+                >
+                  {label}
+                </AppText>
               </View>
             );
           })}
