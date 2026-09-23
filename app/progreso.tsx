@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Animated, ScrollView, TextInput, View } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { easing, estadoLabel, estadoTone, materiaColors, motionDuration, radii, spacing, type EstadoMateria, type MateriaColorId, type Tone } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, Reveal, Spotlight } from "@/components/ui";
-import { supabase } from "@/lib/supabase";
+import { AppIcon, AppText, BackButton, BottomSheet, CursadaLoader, Pill, PressableScale, PrimaryButton, ProgressRing, Reveal, Spotlight } from "@/components/ui";
+import { supabase, usuarioActual } from "@/lib/supabase";
 import { today, toISODate } from "@/lib/agenda";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
 import { useAgenda } from "@/hooks/useAgenda";
@@ -296,9 +296,7 @@ export default function ProgresoScreen() {
     const n = Math.max(0, Math.min(notaModal.total, parsed));
 
     setGuardandoNota(true);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = await usuarioActual();
     if (!user) {
       setGuardandoNota(false);
       Alert.alert("Error", "No hay sesión activa.");
@@ -399,16 +397,27 @@ export default function ProgresoScreen() {
       ) : null}
 
       {!dataReady ? (
-        showError ? null : <AppText style={{ fontSize: 14, color: colors.textTertiary, textAlign: "center", paddingTop: spacing.xxxl }}>Cargando tu progreso…</AppText>
+        showError ? null : (
+          <View style={{ paddingTop: spacing.xxxl * 2, alignItems: "center" }}>
+            <CursadaLoader size={44} label="Cargando tu progreso…" />
+          </View>
+        )
       ) : (
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxxl, gap: spacing.xl }}
         showsVerticalScrollIndicator={false}
       >
       <Reveal style={{ gap: spacing.xxl }}>
-        {/* Aviso materias aprobadas sin nota */}
+        {/* Aviso materias aprobadas sin nota — accionable: lleva a Materias a
+            cargarla, mismo destino que ya usa el CTA análogo de Inicio
+            (kpis.promedioGeneral, ver app/(tabs)/index.tsx). Banner plano,
+            no CtaGlow: ese marco está reservado a sólo 3 lugares ya
+            asignados (ver .claude/skills/cursada-mobile-design/SKILL.md). */}
         {aprobadasSinNota.length > 0 ? (
-          <View
+          <PressableScale
+            scaleTo={0.98}
+            onPress={() => router.push("/(tabs)/materias")}
+            accessibilityLabel={`${aprobadasSinNota.length} ${aprobadasSinNota.length === 1 ? "materia aprobada sin nota cargada" : "materias aprobadas sin nota cargada"}. Completar`}
             style={{
               backgroundColor: colors.warningSoft,
               borderRadius: radii.md,
@@ -422,7 +431,10 @@ export default function ProgresoScreen() {
             <AppText style={{ fontSize: 13, color: colors.warningText, flex: 1 }}>
               Tenés {aprobadasSinNota.length} {aprobadasSinNota.length === 1 ? "materia aprobada sin nota cargada" : "materias aprobadas sin nota cargada"}.
             </AppText>
-          </View>
+            <AppText weight="600" style={{ fontSize: 13, color: colors.warningText }}>
+              Completar
+            </AppText>
+          </PressableScale>
         ) : null}
         {/* Progreso hacia el título — promovida al primer lugar: es el
             número emocionalmente más cargado de la pantalla ("¿voy a
