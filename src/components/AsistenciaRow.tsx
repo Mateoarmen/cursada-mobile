@@ -2,17 +2,18 @@ import { View } from "react-native";
 import { radii } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
 import { AppText, PressableScale } from "@/components/ui";
-import type { DemoMateria } from "@/data/demoContent";
-import { ASISTENCIA_ESTADOS, asistenciaEstadoLabel, type AsistenciaEstado } from "@/lib/asistencia";
+import { ASISTENCIA_ESTADOS, asistenciaEstadoLabel, type AsistenciaEstado, type MateriaAsistencia } from "@/lib/asistencia";
 
-// Fila reusable materia + control de 3 estados — misma que usa el
-// historial de la pantalla de Asistencia y el aviso diario (ver
-// AsistenciaDiarioGate), igual que buildAsistenciaRow() en la web (un solo
-// componente en los dos lugares, no se reimplementa).
+// Fila reusable materia + control de 3 estados — la usan el aviso diario
+// (ver AsistenciaDiarioGate) y el editor de día de la pantalla de Asistencia,
+// igual que buildAsistenciaRow() en la web (un solo componente en los dos
+// lugares, no se reimplementa).
 function EstadoSegmentado({
+  nombre,
   estadoActual,
   onChange,
 }: {
+  nombre: string;
   estadoActual: AsistenciaEstado | null;
   onChange: (estado: AsistenciaEstado | null) => void;
 }) {
@@ -31,16 +32,21 @@ function EstadoSegmentado({
             // vez de quedar pegado — cualquier otro estado simplemente
             // reemplaza al anterior.
             onPress={() => onChange(activo ? null : estado)}
+            accessibilityLabel={`${nombre}: ${asistenciaEstadoLabel[estado]}`}
+            accessibilityState={{ selected: activo }}
             style={{
               flex: 1,
-              height: 34,
+              // 44 pt: es el gesto más repetido de la pantalla (una vez por
+              // materia por día) — el mínimo de toque de iOS, no 34.
+              height: 44,
               borderRadius: radii.sm - 2,
               alignItems: "center",
               justifyContent: "center",
+              paddingHorizontal: 4,
               backgroundColor: activo ? activeColor : colors.surfaceSoft,
             }}
           >
-            <AppText weight="600" numberOfLines={1} style={{ fontSize: 11, color: activo ? activeText : colors.textSecondary }}>
+            <AppText weight="600" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ fontSize: 12, color: activo ? activeText : colors.textSecondary }}>
               {asistenciaEstadoLabel[estado]}
             </AppText>
           </PressableScale>
@@ -56,7 +62,7 @@ export function AsistenciaRow({
   onChange,
   isFirst,
 }: {
-  materia: DemoMateria;
+  materia: MateriaAsistencia;
   estadoActual: AsistenciaEstado | null;
   onChange: (estado: AsistenciaEstado | null) => void;
   isFirst: boolean;
@@ -70,7 +76,7 @@ export function AsistenciaRow({
           {materia.nombre}
         </AppText>
       </View>
-      <EstadoSegmentado estadoActual={estadoActual} onChange={onChange} />
+      <EstadoSegmentado nombre={materia.nombre} estadoActual={estadoActual} onChange={onChange} />
     </View>
   );
 }

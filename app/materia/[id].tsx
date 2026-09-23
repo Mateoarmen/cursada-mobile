@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { ActivityIndicator, Alert, Animated, LayoutAnimation, ScrollView, TextInput, View } from "react-native";
+import { Alert, Animated, LayoutAnimation, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { easing, estadoLabel, estadoTone, materiaColors, motionDuration, radii, spacing, type Tone } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, BackButton, BottomSheet, Pill, PressableScale, PrimaryButton, ProgressRing, RangeSlider, type AppIconName } from "@/components/ui";
-import type { DemoAsistenciaRango, DemoEvaluacion, DemoMateria } from "@/data/demoContent";
+import { AppIcon, type AppIconName, AppText, BackButton, BottomSheet, CursadaLoader, Pill, PressableScale, PrimaryButton, ProgressRing, RangeSlider } from "@/components/ui";
+import type { DemoEvaluacion, DemoMateria } from "@/data/demoContent";
 import { DIAS_BLOQUE, horaTexto } from "@/lib/catalog";
 import { today, toISODate } from "@/lib/agenda";
 import {
@@ -22,6 +22,7 @@ import {
   type EvaluacionSim,
 } from "@/lib/materias";
 import { useAgenda } from "@/hooks/useAgenda";
+import { MateriaAsistenciaCard } from "@/components/asistencia/MateriaAsistenciaCard";
 
 function isoToday() {
   return toISODate(today());
@@ -30,8 +31,6 @@ function isoToday() {
 function nuevoIdLocal() {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
-
-type RangoAsistencia = "semana" | "mes" | "semestre";
 
 function materiaAbrev(nombre: string) {
   return (nombre.trim().split(/\s+/)[0] ?? "").slice(0, 4).toUpperCase();
@@ -164,7 +163,6 @@ export default function MateriaDetalleScreen() {
   const [cargando, setCargando] = useState(true);
   const [simuladorAbierto, setSimuladorAbierto] = useState(false);
   const [valoresSimulados, setValoresSimulados] = useState<Record<string, number>>({});
-  const [rangoAsistencia, setRangoAsistencia] = useState<RangoAsistencia>("semana");
   const [cargarNotaAbierto, setCargarNotaAbierto] = useState(false);
   const [notaInputs, setNotaInputs] = useState<Record<string, string>>({});
   const [editarNotaItem, setEditarNotaItem] = useState<DemoEvaluacion | null>(null);
@@ -242,7 +240,7 @@ export default function MateriaDetalleScreen() {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md }}>
-          {cargando ? <ActivityIndicator color={colors.textTertiary} /> : <AppText style={{ fontSize: 14, color: colors.textTertiary }}>No se encontró la materia.</AppText>}
+          {cargando ? <CursadaLoader size={44} /> : <AppText style={{ fontSize: 14, color: colors.textTertiary }}>No se encontró la materia.</AppText>}
         </View>
       </SafeAreaView>
     );
@@ -283,7 +281,6 @@ export default function MateriaDetalleScreen() {
   const completadasEvals = evaluaciones.filter((e) => e.estado === "aprobada");
 
   const bloquesPorDia = new Map(materia.bloques.map((b) => [b.dia, b]));
-  const asistenciaActual: DemoAsistenciaRango | null = materia.asistencia ? materia.asistencia[rangoAsistencia] : null;
 
   const stub = (titulo: string) => Alert.alert(titulo, "Esta acción llega en una próxima iteración.");
   const avisarError = (titulo: string) => Alert.alert(titulo, "Revisá tu conexión e intentá de nuevo.");
@@ -768,46 +765,7 @@ export default function MateriaDetalleScreen() {
         </Card>
 
         {/* Asistencia */}
-        <Card>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <AppText weight="600" style={{ fontSize: 17, letterSpacing: -0.2 }}>
-              Asistencia
-            </AppText>
-            <View style={{ flexDirection: "row", backgroundColor: colors.surfaceSofter, borderRadius: radii.sm, padding: 3, gap: 2 }}>
-              {(["semana", "mes", "semestre"] as RangoAsistencia[]).map((r) => (
-                <PressableScale
-                  key={r}
-                  scaleTo={0.97}
-                  onPress={() => setRangoAsistencia(r)}
-                  style={{
-                    height: 28,
-                    paddingHorizontal: 10,
-                    borderRadius: 8,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: rangoAsistencia === r ? colors.text : "transparent",
-                  }}
-                >
-                  <AppText weight={rangoAsistencia === r ? "600" : "500"} style={{ fontSize: 12, color: rangoAsistencia === r ? colors.bg : colors.textSecondary, textTransform: "capitalize" }}>
-                    {r}
-                  </AppText>
-                </PressableScale>
-              ))}
-            </View>
-          </View>
-          {asistenciaActual ? (
-            <View style={{ flexDirection: "row", alignItems: "baseline", gap: spacing.sm }}>
-              <AppText mono weight="700" style={{ fontSize: 22 }}>
-                {asistenciaActual.pct}%
-              </AppText>
-              <AppText style={{ fontSize: 13, color: colors.textSecondary }}>
-                {asistenciaActual.presentes}/{asistenciaActual.total} clases
-              </AppText>
-            </View>
-          ) : (
-            <AppText style={{ fontSize: 13, color: colors.textTertiary }}>Sin registros de asistencia en este rango.</AppText>
-          )}
-        </Card>
+        <MateriaAsistenciaCard materia={materia} />
       </ScrollView>
 
       {/* Cargar nota */}
