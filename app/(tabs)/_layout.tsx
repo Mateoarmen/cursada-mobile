@@ -7,6 +7,7 @@ import { radii, tabBar } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
 import { AppIcon, AppText, PressableScale } from "@/components/ui";
 import { AsistenciaDiarioGate } from "@/components/AsistenciaDiarioGate";
+import { useTourTarget } from "@/hooks/TourContext";
 
 // Tabbar flotante "vidrio líquido" — implementada 100% a mano en vez de vía
 // tabBarStyle/tabBarButton/tabBarIcon. El renderer "uikit" que trae esta
@@ -43,6 +44,15 @@ function FloatingTabBar() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
+  // Targets del tour guiado (ver app/onboarding/wizard.tsx, PASOS_TOUR) —
+  // hooks a nivel de componente (nunca dentro de TABS.map) y un lookup
+  // simple por ruta más abajo, para no llamar hooks en un callback.
+  const materiasTabRef = useTourTarget("tab-materias");
+  const horarioTabRef = useTourTarget("tab-horario");
+  const tourRefPorRuta: Partial<Record<(typeof TABS)[number]["route"], typeof materiasTabRef>> = {
+    "/materias": materiasTabRef,
+    "/horario": horarioTabRef,
+  };
 
   return (
     <View
@@ -69,20 +79,21 @@ function FloatingTabBar() {
           const focused = tab.match === "/" ? pathname === "/" : pathname.startsWith(tab.match);
           const color = focused ? colors.accent : "rgba(255,255,255,0.75)";
           return (
-            <PressableScale
-              key={tab.route}
-              scaleTo={0.94}
-              onPress={() => router.navigate(tab.route)}
-              style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 2 }}
-              accessibilityRole="tab"
-              accessibilityLabel={tab.label}
-              accessibilityState={{ selected: focused }}
-            >
-              <AppIcon name={focused ? tab.iconActive : tab.icon} size={19} color={color} weight={focused ? "semibold" : "regular"} />
-              <AppText weight="600" style={{ fontSize: 10, color }}>
-                {tab.label}
-              </AppText>
-            </PressableScale>
+            <View key={tab.route} ref={tourRefPorRuta[tab.route]} style={{ flex: 1 }}>
+              <PressableScale
+                scaleTo={0.94}
+                onPress={() => router.navigate(tab.route)}
+                style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 2 }}
+                accessibilityRole="tab"
+                accessibilityLabel={tab.label}
+                accessibilityState={{ selected: focused }}
+              >
+                <AppIcon name={focused ? tab.iconActive : tab.icon} size={19} color={color} weight={focused ? "semibold" : "regular"} />
+                <AppText weight="600" style={{ fontSize: 10, color }}>
+                  {tab.label}
+                </AppText>
+              </PressableScale>
+            </View>
           );
         })}
       </View>

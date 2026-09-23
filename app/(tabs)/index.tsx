@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
-import { AppState, Platform, ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
+import { AppState, Platform, ScrollView, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession } from "@/hooks/useSession";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
+import { useTourTarget } from "@/hooks/TourContext";
 import { supabase } from "@/lib/supabase";
 import type { Materia, Personal, Semestre } from "@/types/database";
 import { materiaColors, radii, spacing, tabBar, type MateriaColorId, type Tone } from "@/theme/tokens";
@@ -14,6 +15,7 @@ import {
   Avatar,
   BrandMark,
   CtaGlow,
+  Pill,
   PressableScale,
   ProgressRing,
   Reveal,
@@ -51,7 +53,16 @@ const FOCUS_REFETCH_MIN_INTERVAL_MS = 5000;
 export default function InicioScreen() {
   const { colors, tone } = useTheme();
   const TONE_COLOR = useMemo(() => makeToneColor(colors), [colors]);
+  // Targets del tour guiado post-onboarding (ver app/onboarding/wizard.tsx,
+  // PASOS_TOUR) — sólo registran su ref, measureInWindow lo hace
+  // TourOverlay on-demand mientras el tour está activo.
+  const progresoSemestreRef = useTourTarget("progreso-semestre");
+  const asistenciaRef = useTourTarget("asistencia-boton");
   const insets = useSafeAreaInsets();
+  // Con Dynamic Type grande "Abrir materia" quedaba en una columna angosta,
+  // cortada a mitad de palabra: ahí las acciones del hero se apilan.
+  const { fontScale } = useWindowDimensions();
+  const apilarAccionesHero = fontScale > 1.3;
   // Espacio real de la tab bar flotante (altura + gap inferior + su propio
   // margen respecto al home indicator) en vez de un padding fijo adivinado.
   const tabBarClearance =
@@ -275,7 +286,7 @@ export default function InicioScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
-      <Spotlight />
+      <Spotlight intenso />
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.xs, paddingBottom: tabBarClearance, gap: spacing.xl }}
         showsVerticalScrollIndicator={false}
@@ -333,59 +344,57 @@ export default function InicioScreen() {
               progreso/riesgoTxt si la materia ya tiene notas cargadas.
               Personal: píldora fija "Personal", sin barra de progreso. */}
           {heroItem ? (
-            // Pico de la pantalla: única superficie rellena de azul de marca
-            // (el resto de Inicio es superficie plana), con el tiempo que
-            // falta como protagonista tipográfico. Relleno plano accentDeep
-            // (no el degradé del borde anterior) para que el texto blanco
-            // pase 4.5:1 en cualquier punto de la tarjeta.
-            <View style={{ borderRadius: radii.xxl, backgroundColor: colors.accentDeep, padding: spacing.xl, paddingTop: spacing.xxl, gap: spacing.xl }}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <AppText weight="600" style={{ fontSize: 14, color: "rgba(255,255,255,0.88)" }}>
-                  Lo próximo
-                </AppText>
-                {heroItem.tipo === "personal" ? (
-                  <View style={{ minHeight: 24, paddingHorizontal: 11, borderRadius: radii.round, backgroundColor: "rgba(0,0,0,0.22)", alignItems: "center", justifyContent: "center" }}>
-                    <AppText weight="600" style={{ fontSize: 12, color: colors.white }}>
-                      Personal
+            // Superficie plana, igual que el resto de las tarjetas de Inicio:
+            // lidera el título; el tiempo que falta es un dato chico del
+            // encabezado. El azul de marca queda sólo en la acción principal.
+            <View style={{ borderRadius: radii.xxl, backgroundColor: colors.surface, padding: spacing.xl, gap: spacing.xl }}>
+              <View style={{ gap: spacing.md }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                    <AppText weight="600" style={{ fontSize: 14, color: colors.textSecondary }}>
+                      Lo próximo
                     </AppText>
+                    {heroItem.tipo === "personal" ? (
+                      <Pill label="Personal" color={colors.textSecondary} style={{ alignSelf: "center" }} />
+                    ) : null}
                   </View>
-                ) : null}
-              </View>
+                  {proximosDiasRows[0]?.countdown ? (
+                    <AppText mono style={{ fontSize: 14, color: colors.textSecondary, flexShrink: 1, textAlign: "right" }}>
+                      {proximosDiasRows[0].countdown}
+                    </AppText>
+                  ) : null}
+                </View>
 
-              <View style={{ gap: spacing.sm }}>
-                {proximosDiasRows[0]?.countdown ? (
-                  <AppText mono numberOfLines={1} adjustsFontSizeToFit style={{ fontSize: 46, lineHeight: 50, letterSpacing: -1.4, color: colors.white }}>
-                    {proximosDiasRows[0].countdown}
+                <View style={{ gap: spacing.sm }}>
+                  <AppText weight="600" style={{ fontSize: 21, letterSpacing: -0.4, lineHeight: 26 }}>
+                    {heroItem.item.titulo}
                   </AppText>
-                ) : null}
-                <AppText weight="700" style={{ fontSize: 22, letterSpacing: -0.4, lineHeight: 27, color: colors.white }}>
-                  {heroItem.item.titulo}
-                </AppText>
-                <AppText weight="500" style={{ fontSize: 14, color: "rgba(255,255,255,0.88)" }}>
-                  {heroMeta}
-                </AppText>
+                  <AppText style={{ fontSize: 14, color: colors.textSecondary }}>
+                    {heroMeta}
+                  </AppText>
+                </View>
               </View>
 
               {heroItem.tipo === "materia" && heroMateria && heroMateria.actual != null ? (
                 <View style={{ gap: spacing.sm }}>
-                  <View style={{ height: 6, borderRadius: radii.round, backgroundColor: "rgba(255,255,255,0.22)", overflow: "hidden" }}>
+                  <View style={{ height: 4, borderRadius: radii.round, backgroundColor: colors.surfaceSoft, overflow: "hidden" }}>
                     <View
                       style={{
                         width: `${Math.max(0, Math.min(100, (heroMateria.actual / heroMateria.esc.total) * 100))}%`,
                         height: "100%",
                         borderRadius: radii.round,
-                        backgroundColor: colors.white,
+                        backgroundColor: colors.textSecondary,
                       }}
                     />
                   </View>
-                  <AppText style={{ fontSize: 13, color: "rgba(255,255,255,0.88)" }}>
+                  <AppText style={{ fontSize: 13, color: colors.textSecondary }}>
                     {heroMateria.riesgoTxt ||
                       `Vas aprobando · aprobás con ${formatValor(heroMateria.esc.aprob, heroMateria.esc.tipo)}${unidad(heroMateria.esc.tipo)}.`}
                   </AppText>
                 </View>
               ) : null}
 
-              <View style={{ flexDirection: "row", gap: spacing.sm }}>
+              <View style={{ flexDirection: apilarAccionesHero ? "column" : "row", gap: spacing.sm }}>
                 <PressableScale
                   scaleTo={0.97}
                   accessibilityRole="button"
@@ -394,9 +403,9 @@ export default function InicioScreen() {
                       ? heroMateriaRaw && router.push(`/materia/${heroMateriaRaw.id}`)
                       : router.push(`/item/${heroItem.item.id}?kind=personal`)
                   }
-                  style={{ flex: 1, minHeight: 48, borderRadius: radii.sm, backgroundColor: colors.white, alignItems: "center", justifyContent: "center" }}
+                  style={{ flex: apilarAccionesHero ? undefined : 1, minHeight: 48, borderRadius: radii.sm, backgroundColor: colors.accentDeep, alignItems: "center", justifyContent: "center" }}
                 >
-                  <AppText weight="600" style={{ fontSize: 16, color: colors.accentDeep }}>
+                  <AppText weight="600" style={{ fontSize: 16, color: colors.white }}>
                     {heroItem.tipo === "materia" ? "Abrir materia" : "Ver en agenda"}
                   </AppText>
                 </PressableScale>
@@ -405,9 +414,9 @@ export default function InicioScreen() {
                     scaleTo={0.97}
                     accessibilityRole="button"
                     onPress={() => router.push(`/item/${heroItem.item.id}?kind=materia`)}
-                    style={{ minHeight: 48, paddingHorizontal: spacing.xl, borderRadius: radii.sm, backgroundColor: "rgba(0,0,0,0.22)", alignItems: "center", justifyContent: "center" }}
+                    style={{ minHeight: 48, paddingHorizontal: spacing.xl, borderRadius: radii.sm, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }}
                   >
-                    <AppText weight="600" style={{ fontSize: 16, color: colors.white }}>
+                    <AppText weight="500" style={{ fontSize: 16 }}>
                       Ver en agenda
                     </AppText>
                   </PressableScale>
@@ -512,7 +521,9 @@ export default function InicioScreen() {
                   ahora (ver fetch de sólo-lectura de `personal` más arriba);
                   se deshabilita en vez de simular una acción que no hace nada. */}
               <AccesoButton icon="calendar-outline" label={"Evento\npersonal"} disabled disabledHint="Pronto" />
-              <AccesoButton icon="checkbox-outline" label="Asistencia" onPress={() => router.push("/asistencia")} />
+              <View ref={asistenciaRef} style={{ flex: 1 }}>
+                <AccesoButton icon="checkbox-outline" label="Asistencia" onPress={() => router.push("/asistencia")} />
+              </View>
             </View>
           </View>
   
@@ -677,7 +688,7 @@ export default function InicioScreen() {
               semestre cronológicamente anterior + evaluaciones calificadas/
               esperadas + desglose por materia, peor encaminada primero. */}
           {progresoSemestre && progresoSemestre.materias.length > 0 ? (
-            <View>
+            <View ref={progresoSemestreRef}>
               <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", paddingBottom: spacing.md }}>
                 <Titulo>Progreso del semestre</Titulo>
                 {progresoSemestre.deltaVsAnterior != null && progresoSemestre.nombreAnterior ? (

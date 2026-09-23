@@ -6,6 +6,7 @@ import * as ImagePicker from "expo-image-picker";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/hooks/useSession";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
+import { PASOS_TOUR, useTourContext } from "@/hooks/TourContext";
 import { catCarrerasDe, type CatCarrera } from "@/lib/catalog";
 import { saveProfile, uploadAvatar } from "@/lib/profile";
 import {
@@ -171,6 +172,7 @@ function SettingsRow({
 
 export default function PerfilScreen() {
   const { colors, preference, setPreference } = useTheme();
+  const tour = useTourContext();
   const inputStyle = useMemo(() => makeInputStyle(colors), [colors]);
   const [aparienciaAbierta, setAparienciaAbierta] = useState(false);
   const aparienciaLabel = APARIENCIA_OPTS.find((o) => o.value === preference)?.label ?? "Sistema";
@@ -287,6 +289,14 @@ export default function PerfilScreen() {
 
   const initial = (nombre || email || "?")[0]!.toUpperCase();
   const nombreCompleto = [nombre, apellido].filter(Boolean).join(" ").trim();
+
+  // "Make replayable (help menu)" — quien saltó el tour guiado al terminar
+  // el onboarding puede volver a verlo desde acá. Arranca en Inicio porque
+  // ahí viven los primeros targets (progreso-semestre, asistencia-boton).
+  const verTourDeNuevo = () => {
+    tour.iniciar(PASOS_TOUR, "[]");
+    router.replace("/(tabs)");
+  };
 
   const handleLogout = async () => {
     Alert.alert("Cerrar sesión", "¿Seguro que querés cerrar sesión?", [
@@ -512,7 +522,8 @@ export default function PerfilScreen() {
 
           <View style={{ backgroundColor: colors.surface, borderRadius: radii.lg, overflow: "hidden" }}>
             <SettingsRow label="Privacidad y datos" />
-            <SettingsRow label="Ayuda" last />
+            <SettingsRow label="Ayuda" />
+            <SettingsRow label="Ver el tour guiado" onPress={verTourDeNuevo} last />
           </View>
 
           <PrimaryButton label="Cerrar sesión" variant="danger" onPress={handleLogout} />
