@@ -42,6 +42,7 @@ const SYMBOLS = {
   "square-outline": "square",
   "grid-outline": "square.grid.2x2",
   "add-circle-outline": "plus.circle",
+  close: "xmark",
 } as const satisfies Record<string, SFSymbol>;
 
 export type AppIconName = keyof typeof SYMBOLS;

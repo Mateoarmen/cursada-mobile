@@ -5,6 +5,7 @@ export { BackButton } from "./BackButton";
 export { BottomSheet } from "./BottomSheet";
 export { BrandMark } from "./BrandMark";
 export { CtaGlow } from "./CtaGlow";
+export { CursadaLoader, LoadingScreen } from "./CursadaLoader";
 export { Fab } from "./Fab";
 export { GoogleButton } from "./GoogleButton";
 export { MiniCalendario } from "./MiniCalendario";
