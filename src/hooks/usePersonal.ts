@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, usuarioActual } from "@/lib/supabase";
 import type { Personal } from "@/types/database";
 import type { DemoAgendaItem } from "@/data/demoContent";
 
@@ -49,9 +49,7 @@ export function usePersonal() {
   const crear = useCallback(async (input: NuevoPersonalInput) => {
     // RLS de `personal` exige auth.uid() = user_id (mismo criterio que
     // agenda.crear en useAgenda.ts).
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = await usuarioActual();
     if (!user) {
       setError("No hay sesión activa.");
       return false;

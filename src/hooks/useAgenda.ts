@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, usuarioActual } from "@/lib/supabase";
 import type { EventoAgenda } from "@/types/database";
 import type { DemoAgendaItem, DemoEvaluacion } from "@/data/demoContent";
 import { formatFechaAgenda } from "@/lib/agenda";
@@ -86,9 +86,7 @@ export function useAgenda(materiaId?: string) {
     // RLS de `agenda` exige auth.uid() = user_id tanto en lectura como en
     // escritura (no hay default de columna) — sin esto el insert rompe la
     // policy. Mismo criterio que agendaToRow() en la web (CURRENT_USER.id).
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = await usuarioActual();
     if (!user) {
       setError("No hay sesión activa.");
       return false;

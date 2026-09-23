@@ -3,14 +3,14 @@
 // por usuario" (índice único parcial en la base), respetado acá con el
 // mismo patrón en dos pasos: primero desactivar, después activar (nunca
 // dos updates con activo:true en el mismo batch).
-import { supabase } from "@/lib/supabase";
+import { supabase, usuarioActual } from "@/lib/supabase";
 import { nombreDesdePeriodo } from "@/lib/catalog";
 import type { Semestre } from "@/types/database";
 
 export async function currentUserId(): Promise<string> {
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) throw error ?? new Error("No hay sesión.");
-  return data.user.id;
+  const user = await usuarioActual();
+  if (!user) throw new Error("No hay sesión.");
+  return user.id;
 }
 
 // Mismo criterio que la pantalla Semestre activo (a lo sumo un `activo`
