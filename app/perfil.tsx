@@ -8,7 +8,7 @@ import { useSession } from "@/hooks/useSession";
 import { useOnboardingStatusContext } from "@/hooks/OnboardingStatusContext";
 import { PASOS_TOUR, useTourContext } from "@/hooks/TourContext";
 import { catCarrerasDe, type CatCarrera } from "@/lib/catalog";
-import { saveProfile, uploadAvatar } from "@/lib/profile";
+import { deleteAccount, saveProfile, uploadAvatar } from "@/lib/profile";
 import {
   aniosNacimiento,
   calcularTelefono,
@@ -226,6 +226,7 @@ export default function PerfilScreen() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [editando, setEditando] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
 
   const initialized = useRef(false);
 
@@ -307,6 +308,41 @@ export default function PerfilScreen() {
         onPress: () => supabase.auth.signOut(),
       },
     ]);
+  };
+
+  // Requisito de Apple (Guideline 5.1.1(v)): la cuenta se tiene que poder
+  // borrar desde la app, no sólo desactivar. Dos confirmaciones porque es
+  // irreversible y arrastra todo (materias, agenda, asistencias, semestres).
+  const handleEliminarCuenta = () => {
+    if (!userId || eliminando) return;
+    Alert.alert(
+      "Eliminar cuenta",
+      "Se van a borrar tu cuenta y todos tus datos: materias, agenda, asistencias y semestres. Esta acción no se puede deshacer.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Continuar",
+          style: "destructive",
+          onPress: () =>
+            Alert.alert("¿Eliminar definitivamente?", "No vas a poder recuperar tu cuenta ni tus datos.", [
+              { text: "Cancelar", style: "cancel" },
+              {
+                text: "Eliminar cuenta",
+                style: "destructive",
+                onPress: async () => {
+                  setEliminando(true);
+                  try {
+                    await deleteAccount(userId);
+                  } catch (e) {
+                    setEliminando(false);
+                    Alert.alert("No se pudo eliminar la cuenta", e instanceof Error ? e.message : "Revisá tu conexión e intentá de nuevo.");
+                  }
+                },
+              },
+            ]),
+        },
+      ]
+    );
   };
 
   const handleCambiarFoto = async () => {
@@ -527,6 +563,18 @@ export default function PerfilScreen() {
           </View>
 
           <PrimaryButton label="Cerrar sesión" variant="danger" onPress={handleLogout} />
+          <PressableScale
+            scaleTo={0.98}
+            onPress={handleEliminarCuenta}
+            disabled={eliminando}
+            accessibilityRole="button"
+            accessibilityState={{ busy: eliminando }}
+            style={{ minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: -spacing.md }}
+          >
+            <AppText weight="600" style={{ fontSize: 15, color: eliminando ? colors.textTertiary : colors.dangerText }}>
+              {eliminando ? "Eliminando cuenta…" : "Eliminar cuenta"}
+            </AppText>
+          </PressableScale>
           <AppText mono style={{ fontSize: 12, color: colors.textGhost, textAlign: "center" }}>
             cursada 0.1.0
           </AppText>

@@ -4,6 +4,7 @@
 // en la web y en la app. El recorte a cuadrado lo hace el picker nativo
 // (allowsEditing + aspect 1:1) en vez del canvas manual que usa la web.
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
+import * as Notifications from "expo-notifications";
 import { supabase } from "@/lib/supabase";
 import type { Profile } from "@/types/database";
 
@@ -43,4 +44,21 @@ export type ProfilePatch = Partial<
 export async function saveProfile(userId: string, patch: ProfilePatch): Promise<void> {
   const { error } = await supabase.from("profiles").update(patch).eq("id", userId);
   if (error) throw error;
+}
+
+// Borrado de cuenta desde la app (App Store Guideline 5.1.1(v)). Primero el
+// avatar — storage.objects no se puede borrar desde SQL y queda huérfano si
+// no — y después la RPC delete_my_account(), que borra la fila de
+// auth.users; el resto de las tablas cae por ON DELETE CASCADE. Si falla el
+// avatar se sigue igual: lo importante es que la cuenta y sus datos se vayan.
+export async function deleteAccount(userId: string): Promise<void> {
+  await supabase.storage.from("avatars").remove([`${userId}/avatar.jpg`]).catch(() => {});
+  const { error } = await supabase.rpc("delete_my_account");
+  if (error) throw error;
+  // Los recordatorios locales ya programados sonarían para una cuenta que
+  // ya no existe.
+  await Notifications.cancelAllScheduledNotificationsAsync().catch(() => {});
+  // La sesión local quedó apuntando a un usuario borrado — signOut dispara
+  // el guard de rutas de _layout.tsx y vuelve a la intro.
+  await supabase.auth.signOut({ scope: "local" }).catch(() => {});
 }
