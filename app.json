@@ -42,7 +42,8 @@
         }
       ],
       "expo-web-browser",
-      "./plugins/withoutPushEntitlement"
+      "./plugins/withoutPushEntitlement",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true

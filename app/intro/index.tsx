@@ -1,160 +1,121 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { router } from "expo-router";
-import { AccessibilityInfo, Animated, Easing, Pressable, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { easing, motionDuration, spacing } from "@/theme/tokens";
-import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, BrandMark, PrimaryButton } from "@/components/ui";
+import { AccessibilityInfo, View, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
+import { LinearGradient } from "expo-linear-gradient";
+import { useVideoPlayer, VideoView } from "expo-video";
+import { paletteColors, radii, spacing } from "@/theme/tokens";
+import { AppText, PressableScale } from "@/components/ui";
 
-// Mismo copy e íconos que ya usaba el onboarding genérico (app/onboarding/
-// index.tsx, PASOS) — se reusa acá como contenido de las stories en vez de
-// escribir texto nuevo, y de paso queda consistente con esa otra pantalla
-// (mismo mensaje, mismo ícono). Esa pantalla sigue mostrando su propia
-// versión en cascada para quien llega ahí sin haber pasado por /intro (ver
-// su comentario: "cualquier otro caso cae acá").
-const SLIDES = [
-  { icon: "book-outline" as const, texto: "Cargá tus materias con horario, salón y nota de aprobación." },
-  { icon: "checkmark-done-outline" as const, texto: "Agregá parciales, entregas y también tus planes personales." },
-  { icon: "calendar-outline" as const, texto: "Mirá todo junto: calendario, horario y cómo vas de nota." },
-];
-const SLIDE_MS = 4000;
+// Video de bienvenida hecho en Claude Design (proyecto "Videos animados para
+// login", Bienvenida Widgets): recorre Inicio → Lo próximo → KPIs → Curva
+// del semestre → Progreso → ¡Aprobada! y vuelve a la marca, así que loopea
+// sin corte. Trae las frases abajo incrustadas. Re-encodeado a HEVC 3 Mbps
+// (11,5 → 5,3 MB) sin pérdida visible en el texto chico.
+const VIDEO = require("../../assets/video/bienvenida.mp4");
+const VIDEO_ASPECT = 9 / 16;
+// Con "Reducir movimiento" no se reproduce: queda quieto en un cuadro que
+// ya muestra Inicio con su frase ("Sabé qué viene antes de que llegue.").
+const CUADRO_QUIETO_S = 3;
+
+// El video es oscuro (fondo #0F1116 de punta a punta): la intro va siempre
+// en la paleta oscura, aunque la preferencia guardada sea Claro — si no, el
+// video quedaría como un recuadro negro sobre fondo claro.
+const C = paletteColors("dark");
+
+const BOTON_H = 50;
+const BOTONES_GAP = spacing.sm;
 
 // Primera pantalla de cualquier estado sin sesión (gate en
 // app/_layout.tsx) — incluido después de cerrar sesión, no sólo la primera
-// vez que se abre la app. Dos beats: marca (logo + nombre animando) y
-// stories (autoplay, tap para adelantar/retroceder) que termina en la
-// elección de cuenta — nunca se muestra a alguien con sesión activa.
+// vez que se abre la app. Reemplaza al beat de marca + stories de íconos:
+// el video ya arranca y termina en el logo, así que empalma con el splash.
 export default function IntroScreen() {
-  const { colors } = useTheme();
-  const [beat, setBeat] = useState<"marca" | "stories">("marca");
-  const brandOpacity = useRef(new Animated.Value(0)).current;
-  const brandScale = useRef(new Animated.Value(0.85)).current;
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+
+  const player = useVideoPlayer(VIDEO, (p) => {
+    p.loop = true;
+    p.muted = true;
+    // Sin audio: que no corte la música que el usuario tenga sonando.
+    p.audioMixingMode = "mixWithOthers";
+  });
 
   useEffect(() => {
     let mounted = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const pasarAStories = () => mounted && setBeat("stories");
-
     AccessibilityInfo.isReduceMotionEnabled?.()
       .then((reduced) => {
         if (!mounted) return;
-        if (reduced) {
-          brandOpacity.setValue(1);
-          brandScale.setValue(1);
-          timer = setTimeout(pasarAStories, 500);
-          return;
-        }
-        Animated.parallel([
-          Animated.timing(brandOpacity, { toValue: 1, duration: motionDuration.focal, easing: easing.out, useNativeDriver: true }),
-          Animated.timing(brandScale, { toValue: 1, duration: motionDuration.focal, easing: easing.out, useNativeDriver: true }),
-        ]).start();
-        timer = setTimeout(pasarAStories, motionDuration.focal + 500);
+        if (reduced) player.currentTime = CUADRO_QUIETO_S;
+        else player.play();
       })
-      .catch(() => {
-        timer = setTimeout(pasarAStories, motionDuration.focal + 500);
-      });
-
+      .catch(() => mounted && player.play());
     return () => {
       mounted = false;
-      clearTimeout(timer);
     };
-  }, [brandOpacity, brandScale]);
+  }, [player]);
 
-  if (beat === "marca") {
-    return (
-      <Pressable style={{ flex: 1 }} onPress={() => setBeat("stories")}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>
-          <Animated.View style={{ opacity: brandOpacity, transform: [{ scale: brandScale }], alignItems: "center", gap: spacing.md }}>
-            <BrandMark size={64} />
-            <AppText weight="700" style={{ fontSize: 28, letterSpacing: -0.5, color: colors.text }}>
-              cursada
-            </AppText>
-          </Animated.View>
-        </SafeAreaView>
-      </Pressable>
-    );
-  }
-
-  return <StoriesBeat />;
-}
-
-function StoriesBeat() {
-  const { colors } = useTheme();
-  const [idx, setIdx] = useState(0);
-  const progress = useRef(new Animated.Value(0)).current;
-  const contenido = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    progress.setValue(0);
-    const anim = Animated.timing(progress, { toValue: 1, duration: SLIDE_MS, easing: Easing.linear, useNativeDriver: false });
-    anim.start(({ finished }) => {
-      if (finished) setIdx((i) => (i + 1) % SLIDES.length);
-    });
-    return () => anim.stop();
-  }, [idx, progress]);
-
-  useEffect(() => {
-    // Un solo momento autoral por cambio de story (fade + leve translateY),
-    // en vez del corte seco de antes — mismo criterio que Reveal en el
-    // resto de la app (fade-in de contenido, nunca scattered effects).
-    contenido.setValue(0);
-    Animated.timing(contenido, { toValue: 1, duration: motionDuration.routine, easing: easing.out, useNativeDriver: true }).start();
-  }, [idx, contenido]);
-
-  const avanzar = () => setIdx((i) => (i + 1) % SLIDES.length);
-  const retroceder = () => setIdx((i) => (i - 1 + SLIDES.length) % SLIDES.length);
+  // El video entero (sin recortar: las frases van pegadas al borde de
+  // abajo) en el alto que dejan libre la barra de estado y los botones.
+  const botonesH = spacing.lg + BOTON_H * 2 + BOTONES_GAP + Math.max(insets.bottom, spacing.lg) + spacing.sm;
+  const disponible = height - insets.top - botonesH;
+  const videoH = Math.min(width / VIDEO_ASPECT, disponible);
+  const videoW = videoH * VIDEO_ASPECT;
 
   const empezar = (destino: "signin" | "signup") => {
     router.replace({ pathname: "/login", params: { mode: destino } });
   };
 
-  const slide = SLIDES[idx];
-
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <View style={{ flexDirection: "row", gap: 4, paddingHorizontal: spacing.lg, paddingTop: spacing.sm }}>
-        {SLIDES.map((_, i) => (
-          <View key={i} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: colors.surfaceSoft, overflow: "hidden" }}>
-            <Animated.View
-              style={{
-                height: "100%",
-                backgroundColor: colors.accent,
-                width: i < idx ? "100%" : i > idx ? "0%" : progress.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }),
-              }}
-            />
-          </View>
-        ))}
-      </View>
-
-      <View style={{ flex: 1 }}>
-        <Animated.View
-          style={{
-            flex: 1,
-            alignItems: "center",
-            justifyContent: "center",
-            paddingHorizontal: spacing.xxl,
-            gap: spacing.xl,
-            opacity: contenido,
-            transform: [{ translateY: contenido.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
-          }}
-        >
-          <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: colors.accentSofter, alignItems: "center", justifyContent: "center" }}>
-            <AppIcon name={slide.icon} size={30} color={colors.accentText} />
-          </View>
-          <AppText weight="700" style={{ fontSize: 24, letterSpacing: -0.4, textAlign: "center", lineHeight: 30, color: colors.text }}>
-            {slide.texto}
-          </AppText>
-        </Animated.View>
-        <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, flexDirection: "row" }}>
-          <Pressable style={{ flex: 3 }} onPress={retroceder} accessibilityRole="button" accessibilityLabel="Anterior" />
-          <Pressable style={{ flex: 7 }} onPress={avanzar} accessibilityRole="button" accessibilityLabel="Siguiente" />
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <StatusBar style="light" />
+      <View style={{ flex: 1, paddingTop: insets.top, alignItems: "center" }}>
+        <View style={{ width: videoW, height: videoH }}>
+          <VideoView
+            player={player}
+            nativeControls={false}
+            contentFit="contain"
+            allowsPictureInPicture={false}
+            allowsVideoFrameAnalysis={false}
+            accessible
+            accessibilityLabel="Video: un recorrido por Inicio y Progreso de Cursada"
+            style={{ width: videoW, height: videoH, backgroundColor: C.bg }}
+          />
+          {/* En las escenas de zoom el teléfono del video sale por arriba:
+              se funde con el fondo en vez de cortarse en seco bajo la barra
+              de estado. Abajo el video ya trae su propio degradé. */}
+          <LinearGradient pointerEvents="none" colors={[C.bg, "rgba(15,17,22,0)"]} style={{ position: "absolute", top: 0, left: 0, right: 0, height: 36 }} />
         </View>
       </View>
 
-      <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.sm }}>
-        <PrimaryButton label="Comencemos el viaje" onPress={() => empezar("signup")} />
-        <PrimaryButton label="Ya tengo cuenta" variant="ghost" onPress={() => empezar("signin")} />
+      <View
+        style={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.sm, gap: BOTONES_GAP }}
+      >
+        <Boton label="Comencemos el viaje" onPress={() => empezar("signup")} primario />
+        <Boton label="Ya tengo cuenta" onPress={() => empezar("signin")} />
       </View>
-    </SafeAreaView>
+    </View>
+  );
+}
+
+// Mismas medidas que PrimaryButton (accent / ghost), pero con la paleta
+// oscura fija de esta pantalla en vez de la del tema activo.
+function Boton({ label, onPress, primario }: { label: string; onPress: () => void; primario?: boolean }) {
+  return (
+    <PressableScale
+      onPress={onPress}
+      style={{
+        minHeight: BOTON_H,
+        borderRadius: radii.sm,
+        backgroundColor: primario ? C.accent : C.surfaceSoft,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <AppText weight="600" style={{ fontSize: 16, color: primario ? C.white : C.text }}>
+        {label}
+      </AppText>
+    </PressableScale>
   );
 }
