@@ -6,12 +6,14 @@ import { supabase } from "@/lib/supabase";
 import type { Materia } from "@/types/database";
 import { materiaColors, radii, spacing, type Tone } from "@/theme/tokens";
 import { useTheme } from "@/theme/ThemeContext";
-import { AppIcon, AppText, BottomSheet, CursadaLoader, Fab, MiniCalendario, Pill, PressableScale, PrimaryButton, Reveal, Segmented, Spotlight } from "@/components/ui";
+import { AppIcon, AppText, BottomSheet, CursadaLoader, Fab, Pill, PressableScale, PrimaryButton, Reveal, Spotlight } from "@/components/ui";
 import type { DemoAgendaItem } from "@/data/demoContent";
 import { materiaComputadaToRow } from "@/lib/materias";
 import { getSemestreActivoId } from "@/lib/semestres";
 import { useAgenda } from "@/hooks/useAgenda";
 import { usePersonal } from "@/hooks/usePersonal";
+import { CrearItemSheet, type CrearItemValores, type CrearModo } from "@/components/agenda/CrearItemSheet";
+import { AgendaCalendario } from "@/components/agenda/AgendaCalendario";
 import {
   agendaBadgeInfo,
   diffDias,
@@ -22,6 +24,7 @@ import {
   mesLargoLabel,
   MESES_LARGOS,
   parseISODate,
+  PERSONAL_COLOR,
   toISODate,
   today,
 } from "@/lib/agenda";
@@ -30,7 +33,44 @@ type EnrichedItem = DemoAgendaItem & {
   materiaNombre: string;
   chipBg: string;
   chipColor: string;
+  // Color sólido de la materia — la marca del día en la vista Calendario.
+  marca: string;
 };
+
+type Vista = "lista" | "calendario";
+
+const VISTA_OPTIONS: { value: Vista; icon: "list-outline" | "calendar-outline"; label: string }[] = [
+  { value: "lista", icon: "list-outline", label: "Ver como lista" },
+  { value: "calendario", icon: "calendar-outline", label: "Ver como calendario" },
+];
+
+// Lista ↔ Calendario: mismo lenguaje de selección que los chips de filtro
+// (fondo `text` = activo), en compacto para que entre junto al título sin
+// sumar una fila más de chrome antes del contenido.
+function VistaToggle({ value, onChange }: { value: Vista; onChange: (v: Vista) => void }) {
+  const { colors } = useTheme();
+  return (
+    <View accessibilityRole="tablist" style={{ flexDirection: "row", padding: 3, borderRadius: radii.sm, backgroundColor: colors.surfaceSoft }}>
+      {VISTA_OPTIONS.map((o) => {
+        const active = o.value === value;
+        return (
+          <PressableScale
+            key={o.value}
+            scaleTo={0.94}
+            onPress={() => onChange(o.value)}
+            accessibilityRole="tab"
+            accessibilityLabel={o.label}
+            accessibilityState={{ selected: active }}
+            hitSlop={{ top: 4, bottom: 4 }}
+            style={{ width: 44, height: 34, borderRadius: radii.sm - 3, alignItems: "center", justifyContent: "center", backgroundColor: active ? colors.text : "transparent" }}
+          >
+            <AppIcon name={o.icon} size={16} color={active ? colors.bg : colors.textSecondary} weight={active ? "semibold" : "regular"} />
+          </PressableScale>
+        );
+      })}
+    </View>
+  );
+}
 
 const KIND_OPTIONS: { value: "" | "evaluacion" | "tarea"; label: string }[] = [
   { value: "", label: "Todo" },
@@ -47,39 +87,6 @@ const ESTADO_OPTIONS: { value: "" | "pendiente" | "hecho"; label: string }[] = [
 function monthKey(iso: string) {
   const d = parseISODate(iso);
   return `${d.getFullYear()}-${d.getMonth()}`;
-}
-
-function isoToday() {
-  return toISODate(today());
-}
-
-const FECHA_QUICK_LABELS = ["Hoy", "Mañana", "Pasado", "En una semana"];
-const FECHA_QUICK_OFFSETS = [0, 1, 2, 7];
-
-function CampoCrear({ label, children }: { label: string; children: React.ReactNode }) {
-  const { colors } = useTheme();
-  return (
-    <View style={{ gap: spacing.smd }}>
-      <AppText weight="500" style={{ fontSize: 12, color: colors.textTertiary }}>
-        {label}
-      </AppText>
-      {children}
-    </View>
-  );
-}
-
-// Opciones rápidas de fecha para el sheet de creación — sin agregar una
-// dependencia nativa de date-picker sólo para esto (ver critique P2: antes
-// todo ítem nuevo nacía "hoy" sin poder elegir, corrompiendo el
-// agrupamiento de Agenda). Cubre el caso real de uso: cargar algo que ya
-// se sabe hoy/mañana/en unos días, no un calendario completo.
-function fechaQuickOptions() {
-  const base = today();
-  return FECHA_QUICK_OFFSETS.map((offset, i) => {
-    const d = new Date(base);
-    d.setDate(d.getDate() + offset);
-    return { value: toISODate(d), label: FECHA_QUICK_LABELS[i]! };
-  });
 }
 
 function AgendaRow({
@@ -307,14 +314,12 @@ export default function AgendaScreen() {
   const [rendirPaso, setRendirPaso] = useState<"opciones" | "nota">("opciones");
   const [rendirNota, setRendirNota] = useState("");
 
-  const [crearModo, setCrearModo] = useState<{ kind: "materia"; itemKind: "evaluacion" | "tarea" } | { kind: "personal" } | null>(null);
-  const [creTitulo, setCreTitulo] = useState("");
-  const [creMateriaId, setCreMateriaId] = useState(materiasRows[0]?.id ?? "");
-  const [creTodoElDia, setCreTodoElDia] = useState(true);
-  const [creFecha, setCreFecha] = useState(isoToday());
-  const [calendarioAbierto, setCalendarioAbierto] = useState(false);
-  const [creConHorario, setCreConHorario] = useState(false);
-  const [creHora, setCreHora] = useState("");
+  const [crearModo, setCrearModo] = useState<CrearModo | null>(null);
+  // Día con el que arranca "Fecha" al crear desde la vista Calendario.
+  const [fechaCrear, setFechaCrear] = useState<string | undefined>(undefined);
+
+  const [vista, setVista] = useState<Vista>("lista");
+  const [diaSeleccionado, setDiaSeleccionado] = useState(() => toISODate(today()));
 
   const t = useMemo(() => today(), []);
   const materiaLookup = useMemo(() => new Map(materiasRows.map((m) => [m.id, m])), [materiasRows]);
@@ -325,9 +330,9 @@ export default function AgendaScreen() {
         if (item.kind === "materia" && item.materiaId) {
           const m = materiaLookup.get(item.materiaId);
           const accent = m ? materiaColors[m.colorId] : materiaColors.gris;
-          return { ...item, materiaNombre: m?.nombre ?? "Materia", chipBg: accent.soft, chipColor: accent.strong };
+          return { ...item, materiaNombre: m?.nombre ?? "Materia", chipBg: accent.soft, chipColor: accent.strong, marca: accent.strong };
         }
-        return { ...item, materiaNombre: "Personal", chipBg: colors.neutralSoft, chipColor: colors.neutralText };
+        return { ...item, materiaNombre: "Personal", chipBg: colors.neutralSoft, chipColor: colors.neutralText, marca: PERSONAL_COLOR };
       }),
     [items, materiaLookup]
   );
@@ -441,22 +446,20 @@ export default function AgendaScreen() {
   const dataReady = agenda.rows !== null && personal.rows !== null;
   const showError = !dataReady && (!!agenda.error || !!personal.error);
 
-  const abrirCrear = (modo: typeof crearModo) => {
+  const abrirNuevo = (fecha?: string) => {
+    setFechaCrear(fecha);
+    setNuevoSheetOpen(true);
+  };
+
+  const abrirCrear = (modo: CrearModo) => {
     setNuevoSheetOpen(false);
-    setCreTitulo("");
-    setCreMateriaId(materiasRowsActivo[0]?.id ?? "");
-    setCreTodoElDia(true);
-    setCreFecha(isoToday());
-    setCalendarioAbierto(false);
-    setCreConHorario(false);
-    setCreHora("");
     setCrearModo(modo);
   };
 
-  const confirmarCrear = async () => {
-    if (!crearModo || !creTitulo.trim()) return;
+  const confirmarCrear = async ({ titulo, fecha, materiaId, hora, todoElDia }: CrearItemValores) => {
+    if (!crearModo) return;
     if (crearModo.kind === "personal") {
-      const ok = await personal.crear({ titulo: creTitulo.trim(), fecha: creFecha, todoElDia: creTodoElDia });
+      const ok = await personal.crear({ titulo, fecha, todoElDia });
       if (!ok) {
         avisarError("No se pudo crear");
         return;
@@ -465,8 +468,7 @@ export default function AgendaScreen() {
       return;
     }
     const tipo = crearModo.itemKind === "evaluacion" ? "Parcial" : "Entrega";
-    const horaValida = creConHorario && /^([01]?\d|2[0-3]):[0-5]\d$/.test(creHora.trim()) ? creHora.trim() : undefined;
-    const ok = await agenda.crear({ materiaId: creMateriaId, kind: crearModo.itemKind, tipo, titulo: creTitulo.trim(), fecha: creFecha, hora: horaValida });
+    const ok = await agenda.crear({ materiaId, kind: crearModo.itemKind, tipo, titulo, fecha, hora });
     if (!ok) {
       avisarError("No se pudo crear");
       return;
@@ -478,14 +480,17 @@ export default function AgendaScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right"]}>
       <Spotlight height={280} />
       <View style={{ paddingHorizontal: spacing.xl, gap: spacing.md, paddingBottom: spacing.sm }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <AppText weight="700" style={{ fontSize: 32, letterSpacing: -0.8 }}>
-            Agenda
-          </AppText>
-          <AppText mono style={{ fontSize: 12, color: colors.textTertiary }}>
-            {entries.length} {entries.length === 1 ? "ítem" : "ítems"}
-            {vencidosCount ? ` · ${vencidosCount} ${vencidosCount === 1 ? "vencido" : "vencidos"}` : ""}
-          </AppText>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <AppText weight="700" style={{ fontSize: 32, letterSpacing: -0.8 }}>
+              Agenda
+            </AppText>
+            <AppText mono style={{ fontSize: 12, color: colors.textTertiary }}>
+              {entries.length} {entries.length === 1 ? "ítem" : "ítems"}
+              {vencidosCount ? ` · ${vencidosCount} ${vencidosCount === 1 ? "vencido" : "vencidos"}` : ""}
+            </AppText>
+          </View>
+          <VistaToggle value={vista} onChange={setVista} />
         </View>
 
         <View
@@ -583,6 +588,25 @@ export default function AgendaScreen() {
               <CursadaLoader size={44} label="Cargando tu agenda…" />
             </View>
           )
+        ) : vista === "calendario" ? (
+          <Reveal>
+            <AgendaCalendario
+              items={entries}
+              hoy={t}
+              seleccion={diaSeleccionado}
+              onSeleccionar={setDiaSeleccionado}
+              onAgregar={abrirNuevo}
+              renderItem={(item) => (
+                <AgendaRow
+                  item={item}
+                  ocultarMateriaChip={ocultarMateriaChip}
+                  t={t}
+                  onToggleHecho={() => toggleHecho(item.id)}
+                  onPress={() => abrirItem(item)}
+                />
+              )}
+            />
+          </Reveal>
         ) : (
           <Reveal style={{ gap: spacing.xxl }}>
             <AgendaGroup titulo="Vencidas" danger items={vencidas} t={t} ocultarMateriaChip={ocultarMateriaChip} onToggleHecho={toggleHecho} onPressItem={abrirItem} />
@@ -649,14 +673,14 @@ export default function AgendaScreen() {
                 <AppText style={{ fontSize: 13, color: colors.textTertiary, textAlign: "center" }}>
                   Agregá tu primera evaluación, tarea o evento.
                 </AppText>
-                <PrimaryButton label="+ Nuevo" onPress={() => setNuevoSheetOpen(true)} />
+                <PrimaryButton label="+ Nuevo" onPress={() => abrirNuevo()} />
               </View>
             ) : null}
           </Reveal>
         )}
       </ScrollView>
 
-      <Fab onPress={() => setNuevoSheetOpen(true)} />
+      <Fab onPress={() => abrirNuevo(vista === "calendario" ? diaSeleccionado : undefined)} />
 
       {/* Filtros: materia + estado combinados */}
       <BottomSheet visible={filtrosSheetOpen} onClose={() => setFiltrosSheetOpen(false)}>
@@ -832,156 +856,7 @@ export default function AgendaScreen() {
       </BottomSheet>
 
       {/* Crear evaluación/tarea/evento */}
-      <BottomSheet visible={!!crearModo} onClose={() => setCrearModo(null)}>
-        <AppText weight="600" style={{ fontSize: 19, letterSpacing: -0.1 }}>
-          {crearModo?.kind === "personal" ? "Nuevo evento personal" : crearModo?.kind === "materia" && crearModo.itemKind === "evaluacion" ? "Nueva evaluación" : "Nueva tarea"}
-        </AppText>
-
-        {/* Formulario con scroll propio: al abrir el calendario o el teclado
-            el sheet no puede crecer más que la pantalla, y Cancelar/Crear
-            quedan siempre a la vista fuera del scroll. */}
-        <ScrollView
-          style={{ maxHeight: windowHeight * 0.55 }}
-          contentContainerStyle={{ gap: spacing.xl, paddingBottom: spacing.xs }}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <TextInput
-            value={creTitulo}
-            onChangeText={setCreTitulo}
-            placeholder="Título"
-            placeholderTextColor={colors.textFaint}
-            style={{
-              height: 52,
-              borderRadius: radii.sm,
-              backgroundColor: colors.bg,
-              paddingHorizontal: spacing.lg,
-              fontSize: 17,
-              color: colors.text,
-              fontFamily: "InstrumentSans_600SemiBold",
-            }}
-          />
-
-          {crearModo?.kind === "materia" ? (
-            <CampoCrear label="Materia">
-              {materiasRowsActivo.length ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: spacing.sm }}>
-                  {materiasRowsActivo.map((m) => (
-                    <PressableScale key={m.id} scaleTo={0.96} onPress={() => setCreMateriaId(m.id)}>
-                      <Pill
-                        label={m.nombre}
-                        color={creMateriaId === m.id ? materiaColors[m.colorId].strong : colors.textSecondary}
-                        background={creMateriaId === m.id ? materiaColors[m.colorId].soft : colors.surfaceSoft}
-                        style={{ height: 36, paddingHorizontal: 14 }}
-                      />
-                    </PressableScale>
-                  ))}
-                </ScrollView>
-              ) : (
-                <AppText style={{ fontSize: 13, color: colors.textTertiary }}>No tenés materias cargadas en el semestre activo todavía.</AppText>
-              )}
-            </CampoCrear>
-          ) : null}
-
-          <CampoCrear label="Fecha">
-            <PressableScale
-              scaleTo={0.99}
-              onPress={() => setCalendarioAbierto((v) => !v)}
-              accessibilityRole="button"
-              accessibilityLabel={`Fecha: ${formatFechaAgenda(creFecha)}. Abrir calendario`}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: spacing.md,
-                height: 52,
-                paddingHorizontal: spacing.lg,
-                borderRadius: radii.sm,
-                backgroundColor: colors.bg,
-                borderWidth: 1,
-                borderColor: calendarioAbierto ? colors.accent : "transparent",
-              }}
-            >
-              <AppIcon name="calendar-outline" size={18} color={colors.textSecondary} />
-              <AppText mono style={{ fontSize: 16, flex: 1 }}>
-                {formatFechaAgenda(creFecha)}
-              </AppText>
-              <AppIcon name={calendarioAbierto ? "chevron-up" : "chevron-down"} size={14} color={colors.textTertiary} />
-            </PressableScale>
-            {calendarioAbierto ? (
-              <MiniCalendario
-                seleccionado={creFecha}
-                onSeleccionar={(iso) => {
-                  setCreFecha(iso);
-                  setCalendarioAbierto(false);
-                }}
-              />
-            ) : (
-              // Atajos como texto plano (sin relleno): así no se confunden
-              // con las píldoras de materia, que sí son selección con fondo.
-              <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: spacing.xl }}>
-                {fechaQuickOptions().map((o) => (
-                  <PressableScale key={o.value} scaleTo={0.96} onPress={() => setCreFecha(o.value)} style={{ minHeight: 36, justifyContent: "center" }}>
-                    <AppText weight={creFecha === o.value ? "600" : "500"} style={{ fontSize: 14, color: creFecha === o.value ? colors.accentText : colors.textSecondary }}>
-                      {o.label}
-                    </AppText>
-                  </PressableScale>
-                ))}
-              </View>
-            )}
-          </CampoCrear>
-
-          <CampoCrear label="Horario">
-            {crearModo?.kind === "materia" ? (
-              <>
-                <Segmented
-                  options={[
-                    { value: "sin", label: "Sin horario" },
-                    { value: "con", label: "Con horario" },
-                  ]}
-                  value={creConHorario ? "con" : "sin"}
-                  onChange={(v) => {
-                    setCreConHorario(v === "con");
-                    if (v === "sin") setCreHora("");
-                  }}
-                />
-                {creConHorario ? (
-                  <TextInput
-                    value={creHora}
-                    onChangeText={setCreHora}
-                    placeholder="HH:MM"
-                    placeholderTextColor={colors.textFaint}
-                    keyboardType="numbers-and-punctuation"
-                    maxLength={5}
-                    style={{
-                      height: 48,
-                      borderRadius: radii.sm,
-                      backgroundColor: colors.bg,
-                      paddingHorizontal: spacing.lg,
-                      fontSize: 16,
-                      color: colors.text,
-                      fontFamily: "InstrumentSans_600SemiBold",
-                    }}
-                  />
-                ) : null}
-              </>
-            ) : (
-              <Segmented
-                options={[
-                  { value: "dia", label: "Todo el día" },
-                  { value: "hora", label: "Con horario" },
-                ]}
-                value={creTodoElDia ? "dia" : "hora"}
-                onChange={(v) => setCreTodoElDia(v === "dia")}
-              />
-            )}
-          </CampoCrear>
-        </ScrollView>
-
-        <View style={{ flexDirection: "row", gap: spacing.smd, paddingTop: spacing.xs }}>
-          <PrimaryButton label="Cancelar" variant="ghost" flex onPress={() => setCrearModo(null)} />
-          <PrimaryButton label="Crear" flex disabled={!creTitulo.trim()} onPress={confirmarCrear} />
-        </View>
-      </BottomSheet>
+      <CrearItemSheet modo={crearModo} onClose={() => setCrearModo(null)} onCrear={confirmarCrear} materias={materiasRowsActivo} fechaInicial={fechaCrear} />
 
     </SafeAreaView>
   );
